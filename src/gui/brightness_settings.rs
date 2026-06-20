@@ -14,6 +14,8 @@ pub struct BrightnessSettingsPage {
     brightness_day: u32,
     brightness_night: u32,
     transition_mins: u32,
+    sunrise_offset_mins: i32,
+    sunset_offset_mins: i32,
     plot: Option<PlotData>,
 }
 
@@ -23,6 +25,8 @@ struct PlotData {
     brightness_day: u32,
     brightness_night: u32,
     transition_mins: u32,
+    sunrise_offset_mins: i32,
+    sunset_offset_mins: i32,
     location: Location,
 }
 
@@ -42,6 +46,12 @@ impl PlotData {
         if config.transition_mins != self.transition_mins {
             return true;
         }
+        if config.sunrise_offset_mins != self.sunrise_offset_mins {
+            return true;
+        }
+        if config.sunset_offset_mins != self.sunset_offset_mins {
+            return true;
+        }
         let age = SystemTime::now().duration_since(self.generated_at).unwrap();
         if chrono::Duration::from_std(age).unwrap().num_minutes() > 5 {
             return true;
@@ -56,6 +66,8 @@ impl BrightnessSettingsPage {
             brightness_day: config.brightness_day,
             brightness_night: config.brightness_night,
             transition_mins: config.transition_mins,
+            sunrise_offset_mins: config.sunrise_offset_mins,
+            sunset_offset_mins: config.sunset_offset_mins,
             plot: None,
         }
     }
@@ -64,6 +76,8 @@ impl BrightnessSettingsPage {
         config.brightness_night = self.brightness_night;
         config.brightness_day = self.brightness_day;
         config.transition_mins = self.transition_mins;
+        config.sunrise_offset_mins = self.sunrise_offset_mins;
+        config.sunset_offset_mins = self.sunset_offset_mins;
         assert!(config.validate().is_ok())
     }
 }
@@ -84,6 +98,14 @@ impl Page for BrightnessSettingsPage {
 
                 ui.label("Transition Minutes").on_hover_text("How long it takes to transition between day and night brightness at sunset/sunrise");
                 ui.add(egui::Slider::new(&mut self.transition_mins, 0u32..=360u32).suffix("min"));
+                ui.end_row();
+
+                ui.label("Sunrise Advance").on_hover_text("Minutes to shift the morning transition earlier (positive) or later (negative) than the actual sunrise");
+                ui.add(egui::Slider::new(&mut self.sunrise_offset_mins, -180i32..=180i32).suffix("min"));
+                ui.end_row();
+
+                ui.label("Sunset Advance").on_hover_text("Minutes to shift the evening transition earlier (positive) or later (negative) than the actual sunset");
+                ui.add(egui::Slider::new(&mut self.sunset_offset_mins, -180i32..=180i32).suffix("min"));
                 ui.end_row();
 
             });
@@ -126,12 +148,16 @@ impl BrightnessSettingsPage {
                     config.brightness_day,
                     config.brightness_night,
                     config.transition_mins,
+                    config.sunrise_offset_mins,
+                    config.sunset_offset_mins,
                 ),
                 Some(x) if x.is_stale(&config) => generate_plot_data(
                     location,
                     config.brightness_day,
                     config.brightness_night,
                     config.transition_mins,
+                    config.sunrise_offset_mins,
+                    config.sunset_offset_mins,
                 ),
                 Some(x) => x,
             });
@@ -205,6 +231,8 @@ fn generate_plot_data(
     brightness_day: u32,
     brightness_night: u32,
     transition_mins: u32,
+    sunrise_offset_mins: i32,
+    sunset_offset_mins: i32,
 ) -> PlotData {
     log::debug!("Generating plot...");
     let timer_start = Instant::now();
@@ -230,6 +258,8 @@ fn generate_plot_data(
             brightness_day,
             brightness_night,
             transition_mins,
+            sunrise_offset_mins,
+            sunset_offset_mins,
             &sun,
             current,
         );
@@ -264,6 +294,8 @@ fn generate_plot_data(
         brightness_day,
         brightness_night,
         transition_mins,
+        sunrise_offset_mins,
+        sunset_offset_mins,
         location,
     }
 }

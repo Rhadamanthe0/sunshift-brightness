@@ -4,6 +4,15 @@
 
 Automatically and smoothly adjusts monitor brightness based on the sunrise/sunset times at your location.
 
+> #### Fork — Sunrise/Sunset Advance
+>
+> This fork adds two settings, **Sunrise Advance** and **Sunset Advance** (minutes), that shift the
+> morning and evening transitions independently relative to the actual solar event. A positive value
+> starts the transition *earlier* than sunrise/sunset, a negative value *later*. Useful when your room
+> gets light or dark before the sun actually rises or sets (e.g. an east-facing room that brightens
+> early in the morning and dims early in the evening). When both are `0` the behaviour is identical to
+> upstream.
+
 > #### New 2.0 Release! 
 > 
 > I am pleased to announce a new 2.0 version with a modernised UI, new features, and bug fixes!
@@ -35,6 +44,7 @@ There is also a CLI only version of the application available.
 3. Use the menus to set:
     - Daytime and Nighttime brightness percentages.
     - Transition time (the time it takes to switch between the two brightness values at either sunset or sunrise).
+    - Sunrise / Sunset Advance (minutes to shift each transition earlier (+) or later (-) than the actual solar event).
     - Your location (either manually enter coordinates, or using the search tool).
 4. Click save and this configuration will be applied and persisted to disk.
 5. You can close the window, and it will continue to update your brightness in the background.

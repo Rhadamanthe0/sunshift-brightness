@@ -27,6 +27,16 @@ pub struct SsbConfig {
     pub brightness_night: u32,
     #[validate(range(max = 360))]
     pub transition_mins: u32,
+    /// Minutes pour avancer (positif) ou retarder (négatif) la transition du
+    /// matin par rapport au lever du soleil réel.
+    #[serde(default)]
+    #[validate(range(min = -180, max = 180))]
+    pub sunrise_offset_mins: i32,
+    /// Minutes pour avancer (positif) ou retarder (négatif) la transition du
+    /// soir par rapport au coucher du soleil réel.
+    #[serde(default)]
+    #[validate(range(min = -180, max = 180))]
+    pub sunset_offset_mins: i32,
     #[validate]
     pub location: Option<Location>,
     #[serde(default)]
@@ -117,6 +127,8 @@ impl Default for SsbConfig {
             brightness_day: 100,
             brightness_night: 60,
             transition_mins: 40,
+            sunrise_offset_mins: 0,
+            sunset_offset_mins: 0,
             location: None,
             overrides: vec![],
         }

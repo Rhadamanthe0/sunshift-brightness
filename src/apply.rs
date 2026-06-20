@@ -94,6 +94,8 @@ pub fn apply_brightness(
     brightness_day: u32,
     brightness_night: u32,
     transition_mins: u32,
+    sunrise_offset_mins: i32,
+    sunset_offset_mins: i32,
     location: Location,
     overrides: Vec<MonitorOverride>,
 ) -> ApplyResults {
@@ -139,6 +141,8 @@ pub fn apply_brightness(
                     brightness_day,
                     brightness_night,
                     transition_mins,
+                    sunrise_offset_mins,
+                    sunset_offset_mins,
                     &sun,
                     epoch_time_now,
                 );

@@ -137,6 +137,8 @@ fn apply(config: SsbConfig) -> Option<ApplyResults> {
             config.brightness_day,
             config.brightness_night,
             config.transition_mins,
+            config.sunrise_offset_mins,
+            config.sunset_offset_mins,
             location,
             config.overrides,
         ))

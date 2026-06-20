@@ -42,6 +42,8 @@ fn run(args: Args) -> anyhow::Result<()> {
             config.brightness_day,
             config.brightness_night,
             config.transition_mins,
+            config.sunrise_offset_mins,
+            config.sunset_offset_mins,
             config.location.unwrap(),
             config.overrides,
         );
