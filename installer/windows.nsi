@@ -1,31 +1,42 @@
+# Installeur NSIS — Custom Solar Screen Brightness (fork)
+# Paramétrable au build via /D : BINDIR (dossier des .exe), ICON, OUTFILE.
 Unicode True
-!addplugindir plugins
-!addincludedir include
 
 !include "MUI2.nsh"
-!include "nsProcess.nsh"
+
+!ifndef BINDIR
+  !define BINDIR "..\target\release"
+!endif
+!ifndef ICON
+  !define ICON "..\assets\icon-256.ico"
+!endif
+!ifndef OUTFILE
+  !define OUTFILE "ssb-installer.exe"
+!endif
+
+!define APP_NAME "Custom Solar Screen Brightness"
+!define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+!define RUN_VALUE "CustomSolarScreenBrightness"
+!define SHORT_CUT "$SMPROGRAMS\${APP_NAME}.lnk"
+!define SHORT_CUT_UNINSTALL "$SMPROGRAMS\Uninstall ${APP_NAME}.lnk"
 
 RequestExecutionLevel user
-OutFile "ssb-installer.exe"
-Name "Solar Screen Brightness"
-InstallDir "$LocalAppdata\solar-screen-brightness"
+OutFile "${OUTFILE}"
+Name "${APP_NAME}"
+InstallDir "$LocalAppData\solar-screen-brightness"
 
-!define SHORT_CUT "$SMPROGRAMS\Solar Screen Brightness.lnk"
-!define SHORT_CUT_UNINSTALL "$SMPROGRAMS\Uninstall Solar Screen Brightness.lnk"
-!define SHORT_CUT_START_UP "$SMSTARTUP\Solar Screen Brightness (Minimised).lnk"
-
-!define MUI_ICON "..\assets\icon-256.ico"
-!define MUI_WELCOMEPAGE_TITLE "Solar Screen Brightness"
+!define MUI_ICON "${ICON}"
+!define MUI_WELCOMEPAGE_TITLE "${APP_NAME}"
 !define MUI_WELCOMEPAGE_TEXT "Click Install to start the installation."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\ssb.exe"
+!define MUI_FINISHPAGE_RUN_PARAMETERS "--minimised"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
-!define MUI_WELCOMEPAGE_TITLE "Solar Screen Brightness"
+!define MUI_WELCOMEPAGE_TITLE "${APP_NAME}"
 !define MUI_WELCOMEPAGE_TEXT "Click Uninstall to start the uninstallation."
-
 !insertmacro MUI_UNPAGE_WELCOME
 !insertmacro MUI_UNPAGE_INSTFILES
 
@@ -34,38 +45,34 @@ InstallDir "$LocalAppdata\solar-screen-brightness"
 Section
     SetOutPath "$INSTDIR"
 
-    # Stop version 1
-    ${nsProcess::KillProcess} "solar-screen-brightness.exe" $R0
-    DetailPrint "Stopping solar-screen-brightness.exe code: $R0"
-    # Stop version 2
-    ${nsProcess::KillProcess} "ssb.exe" $R0
-    DetailPrint "Stopping ssb.exe code: $R0"
-
-    # Allow time for processes to stop
+    # Arreter une instance en cours (ancien nom et nom courant)
+    nsExec::ExecToLog 'taskkill /f /im solar-screen-brightness.exe'
+    Pop $0
+    nsExec::ExecToLog 'taskkill /f /im ssb.exe'
+    Pop $0
     Sleep 500
 
-    # Delete version 1
+    # Nettoyage des donnees heritees v1
     RMDir /r "$APPDATA\Solar Screen Brightness"
 
-    File "..\target\release\ssb.exe"
-    File "..\target\release\ssb-cli.exe"
+    File "${BINDIR}\ssb.exe"
+    File "${BINDIR}\ssb-cli.exe"
     WriteUninstaller "$INSTDIR\uninstall.exe"
     CreateShortcut "${SHORT_CUT}" "$INSTDIR\ssb.exe"
     CreateShortcut "${SHORT_CUT_UNINSTALL}" "$INSTDIR\uninstall.exe"
-    CreateShortcut "${SHORT_CUT_START_UP}" "$INSTDIR\ssb.exe" "--minimised"
+
+    # Demarrage auto au logon, minimise. La cle Run se declenche des que le
+    # shell (donc la barre des taches) est pret : tot, mais pas au point que
+    # l'icone de tray echoue a s'enregistrer.
+    WriteRegStr HKCU "${RUN_KEY}" "${RUN_VALUE}" '"$INSTDIR\ssb.exe" --minimised'
 SectionEnd
 
 Section "uninstall"
-    # Stop version 2
-    ${nsProcess::KillProcess} "ssb.exe" $R0
-    DetailPrint "Stopping ssb.exe code: $R0"
-
-    # Allow time for processes to stop
+    nsExec::ExecToLog 'taskkill /f /im ssb.exe'
+    Pop $0
     Sleep 500
-
+    DeleteRegValue HKCU "${RUN_KEY}" "${RUN_VALUE}"
     Delete "${SHORT_CUT}"
     Delete "${SHORT_CUT_UNINSTALL}"
-    Delete "${SHORT_CUT_START_UP}"
     RMDir /r "$INSTDIR"
 SectionEnd
-

@@ -30,6 +30,22 @@ Implémentation — même chaîne de paramètres que `transition_mins` :
 - Compiler : à la racine du projet, `cargo build --release`. Binaires produits dans `…\AppData\Local\ssb-target\release\` : **`ssb.exe`** (GUI + icône de barre des tâches) et **`ssb-cli.exe`**.
 - `build.rs` intègre l'icône via `winres` ; rendu **tolérant** : avertit au lieu d'échouer si `rc.exe` manque (l'icône de l'exe est cosmétique).
 
+## Installation
+
+Installeur Windows NSIS : `installer/windows.nsi`, **paramétré** (`/DBINDIR`, `/DICON`, `/DOUTFILE`) pour pointer vers la sortie de build hors-Drive.
+
+Construire l'installeur (NSIS requis : `winget install NSIS.NSIS`) — compiler depuis un **chemin ASCII** pour éviter l'espace insécable :
+
+```
+makensis /DBINDIR=<dossier des .exe> /DICON=<icone .ico> /DOUTFILE=<sortie .exe> installer\windows.nsi
+```
+
+`ssb-installer.exe` (aucun droit admin) :
+- copie `ssb.exe` + `ssb-cli.exe` dans `%LOCALAPPDATA%\solar-screen-brightness\` ;
+- crée les raccourcis menu Démarrer (+ désinstalleur) ;
+- **démarrage auto** au logon via `HKCU\…\CurrentVersion\Run` → `ssb.exe --minimised`, déclenché une fois le shell prêt (la barre des tâches doit exister pour que l'icône de tray s'enregistre — ne pas lancer plus tôt).
+
+Désinstaller : menu Démarrer → « Uninstall Custom Solar Screen Brightness » (ou `%LOCALAPPDATA%\solar-screen-brightness\uninstall.exe`) ; retire fichiers, raccourcis et clé de démarrage.
 ## Pièges
 
 - Chemin du Drive avec **espace insécable** (U+00A0) : les outils à chemin absolu (Read/Edit) échouent ; passer par PowerShell + chemins relatifs (cf. CLAUDE.md racine du Drive).
