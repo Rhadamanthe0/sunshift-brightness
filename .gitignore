@@ -5,3 +5,4 @@
 *.exe
 /.cargo/
 /build_release.log
+/ssb-installer.exe

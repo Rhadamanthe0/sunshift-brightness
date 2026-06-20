@@ -49,6 +49,23 @@ There is also a CLI only version of the application available.
 4. Click save and this configuration will be applied and persisted to disk.
 5. You can close the window, and it will continue to update your brightness in the background.
 
+## Installation (this fork)
+
+A pre-built Windows installer (`ssb-installer.exe`, NSIS, no admin rights) is produced from `installer/windows.nsi`. Running it:
+
+- copies `ssb.exe` + `ssb-cli.exe` into `%LOCALAPPDATA%\solar-screen-brightness\`;
+- adds Start Menu shortcuts and an uninstaller;
+- registers autostart at logon, minimised to tray, via `HKCU\…\CurrentVersion\Run` (`ssb.exe --minimised`).
+
+First run: open the settings from the tray icon and set your **Location**, then Day/Night brightness, Transition, and the new **Sunrise/Sunset Advance**. Nothing is adjusted until a location is set.
+
+To uninstall: Start Menu → *Uninstall Custom Solar Screen Brightness*.
+
+To rebuild the installer from source (requires `makensis`):
+
+```
+makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> installer\windows.nsi
+```
 ## Screenshots
 
 ![](./screenshots/status.png)
