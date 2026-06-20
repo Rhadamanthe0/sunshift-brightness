@@ -12,6 +12,10 @@ Automatically and smoothly adjusts monitor brightness based on the sunrise/sunse
 > gets light or dark before the sun actually rises or sets (e.g. an east-facing room that brightens
 > early in the morning and dims early in the evening). When both are `0` the behaviour is identical to
 > upstream.
+>
+> This is an **unofficial fork** of [Solar Screen Brightness](https://github.com/jacob-pro/solar-screen-brightness)
+> by **Jacob Halsey** ([jacob-pro](https://github.com/jacob-pro)), licensed under **LGPL-3.0**. All credit for the
+> original application goes to the original author; this fork only adds the Sunrise/Sunset Advance feature.
 
 > #### New 2.0 Release! 
 > 
@@ -66,6 +70,10 @@ To rebuild the installer from source (requires `makensis`):
 ```
 makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> installer\windows.nsi
 ```
+## Original project & licence
+
+This repository is a fork of **[Solar Screen Brightness](https://github.com/jacob-pro/solar-screen-brightness)**, created by **Jacob Halsey** (<https://github.com/jacob-pro>). The original work — and the vast majority of this codebase — is his. This fork is distributed under the same **GNU LGPL-3.0** licence (see [LICENSE](LICENSE)); the only functional addition is the configurable **Sunrise/Sunset Advance** offsets. It is not affiliated with, nor endorsed by, the original author.
+
 ## Screenshots
 
 ![](./screenshots/status.png)

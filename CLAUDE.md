@@ -45,7 +45,8 @@ makensis /DBINDIR=<dossier des .exe> /DICON=<icone .ico> /DOUTFILE=<sortie .exe>
 - crée les raccourcis menu Démarrer (+ désinstalleur) ;
 - **démarrage auto** au logon via `HKCU\…\CurrentVersion\Run` → `ssb.exe --minimised`, déclenché une fois le shell prêt (la barre des tâches doit exister pour que l'icône de tray s'enregistre — ne pas lancer plus tôt).
 
-Désinstaller : menu Démarrer → « Uninstall Custom Solar Screen Brightness » (ou `%LOCALAPPDATA%\solar-screen-brightness\uninstall.exe`) ; retire fichiers, raccourcis et clé de démarrage.
+Désinstaller : menu Démarrer → « Uninstall Custom Solar Screen Brightness » (ou `%LOCALAPPDATA%\solar-screen-brightness\uninstall.exe`) ; retire fichiers (binaires, config, log), raccourcis et clé de démarrage. **Désinstallation vérifiée propre** (aucun résidu) : tout vit dans `%LOCALAPPDATA%\solar-screen-brightness\` (= INSTDIR = dossier config/log), supprimé en bloc ; l'uninstaller NSIS se relance depuis `%TEMP%` donc il efface aussi son propre dossier.
+
 ## Pièges & difficultés rencontrées (à relire avant de retoucher)
 
 Spécifique à cet environnement (Drive monté + bac à sable PowerShell) — points qui m'ont réellement bloqué :
@@ -63,3 +64,5 @@ Spécifique à cet environnement (Drive monté + bac à sable PowerShell) — po
 ## Publication
 
 Fork publié en **privé** sur le compte GitHub de l'utilisateur (CPI). Branche de travail `feature/sunrise-sunset-advance`, fusionnée dans la branche par défaut. Le dépôt amont reste `jacob-pro/solar-screen-brightness` (LGPL). L'installeur compilé est attaché en **Release** (binaire hors historique git).
+
+**CI (`.github/workflows/rust.yml`)** : GitHub Actions lance test + clippy + build à **chaque push** (Windows + Ubuntu) — consomme des minutes Actions (quota limité en dépôt privé). Un **tag** poussé (`refs/tags/…`) déclenche en plus la publication d'une Release avec les binaires + installeur. La Release `v2.3.2-custom` a, elle, été créée manuellement via `gh`.
