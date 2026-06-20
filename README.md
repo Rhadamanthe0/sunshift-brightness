@@ -1,6 +1,6 @@
 # Solar Screen Brightness
 
-[![Build status](https://github.com/jacob-pro/solar-screen-brightness/actions/workflows/rust.yml/badge.svg)](https://github.com/jacob-pro/solar-screen-brightness/actions)
+[![Build status](https://github.com/Rhadamanthe0/custom-solar-screen-brightness/actions/workflows/rust.yml/badge.svg)](https://github.com/Rhadamanthe0/custom-solar-screen-brightness/actions)
 
 Automatically and smoothly adjusts monitor brightness based on the sunrise/sunset times at your location.
 
@@ -70,6 +70,9 @@ To rebuild the installer from source (requires `makensis`):
 ```
 makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> installer\windows.nsi
 ```
+
+CI builds the installer on every push: it runs `choco install nsis`, then invokes `makensis` **from the `installer/` directory**, where the default relative paths (`..\target\release`, `..\assets`) resolve correctly and `ssb-installer.exe` is produced.
+
 ## Original project & licence
 
 This repository is a fork of **[Solar Screen Brightness](https://github.com/jacob-pro/solar-screen-brightness)**, created by **Jacob Halsey** (<https://github.com/jacob-pro>). The original work — and the vast majority of this codebase — is his. This fork is distributed under the same **GNU LGPL-3.0** licence (see [LICENSE](LICENSE)); the only functional addition is the configurable **Sunrise/Sunset Advance** offsets. It is not affiliated with, nor endorsed by, the original author.
