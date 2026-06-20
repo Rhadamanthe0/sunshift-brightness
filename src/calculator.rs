@@ -81,14 +81,13 @@ pub fn calculate_brightness(
     // i.e. shifts the solar event earlier; a negative offset delays it.
     let rise = sun.rise - (sunrise_offset_mins as i64) * 60;
     let set = sun.set - (sunset_offset_mins as i64) * 60;
-    let visible = sun.visible;
 
     let low = brightness_day.min(brightness_night);
     let high = brightness_day.max(brightness_night);
     let transition_secs = transition_mins * 60; //time for transition from low to high
     let half_transition_secs = (transition_secs / 2) as i64;
 
-    let (time_a, time_b) = if visible {
+    let (time_a, time_b) = if sun.visible {
         // Daytime
         (
             rise + half_transition_secs, // When the sun rose this morning  + transition
@@ -106,23 +105,23 @@ pub fn calculate_brightness(
     let backwards = brightness_night > brightness_day;
 
     if time_now < time_a {
-        let event = if visible { rise } else { set };
+        let event = if sun.visible { rise } else { set };
         sine_curve(
             time_now,
             transition_secs,
             event,
-            !(visible ^ backwards),
+            !(sun.visible ^ backwards),
             low,
             high,
         )
     } else if time_now >= time_b {
         // Must be greater or equal to or it would get stuck in a loop
-        let event = if visible { set } else { rise };
+        let event = if sun.visible { set } else { rise };
         sine_curve(
             time_now,
             transition_secs,
             event,
-            visible ^ backwards,
+            sun.visible ^ backwards,
             low,
             high,
         )
@@ -130,7 +129,7 @@ pub fn calculate_brightness(
         // Time is >=A and <B, therefore the brightness next change is at B
         BrightnessResult {
             expiry_time: Some(time_b),
-            brightness: if visible {
+            brightness: if sun.visible {
                 brightness_day
             } else {
                 brightness_night
