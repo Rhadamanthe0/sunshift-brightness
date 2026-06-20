@@ -22,8 +22,15 @@ jobs:
       - name: Cargo Release Build
         run: cargo build --release
 
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      # makensis doit tourner depuis installer/ : le script utilise des chemins
+      # relatifs (..\target\release, ..\assets) qui supposent ce dossier courant.
+      # Il y produit aussi ssb-installer.exe, attendu par l'étape Publish.
       - name: Create installer
-        run: makensis installer/windows.nsi
+        working-directory: installer
+        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" windows.nsi'
 
       - if: startsWith(github.ref, 'refs/tags/')
         name: Publish Release Artifacts

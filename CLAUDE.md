@@ -66,3 +66,9 @@ Spécifique à cet environnement (Drive monté + bac à sable PowerShell) — po
 Fork publié en **privé** sur le compte GitHub de l'utilisateur (CPI). Branche de travail `feature/sunrise-sunset-advance`, fusionnée dans la branche par défaut. Le dépôt amont reste `jacob-pro/solar-screen-brightness` (LGPL). L'installeur compilé est attaché en **Release** (binaire hors historique git).
 
 **CI (`.github/workflows/rust.yml`)** : GitHub Actions lance test + clippy + build à **chaque push** (Windows + Ubuntu) — consomme des minutes Actions (quota limité en dépôt privé). Un **tag** poussé (`refs/tags/…`) déclenche en plus la publication d'une Release avec les binaires + installeur. La Release `v2.3.2-custom` a, elle, été créée manuellement via `gh`.
+
+**Trois jobs — pièges à connaître :**
+
+- `check_style` = `cargo fmt -- --check` **+ `cargo-sort --check --workspace`**. Garder `Cargo.toml` trié **alphabétiquement dans chaque table**, y compris les `[target.'cfg(...)'.dependencies]` (le tri amont était cassé : il fallait `console` avant `win32-utils`, et `gtk` avant `udev`).
+- `ubuntu` = test + clippy uniquement (ne compile pas le code Windows-only — un échec Windows-only n'y apparaît donc pas).
+- `windows` = test + clippy + build + **installeur**. `makensis` **n'est pas dans le PATH** du runner `windows-latest` : le workflow fait `choco install nsis`, puis appelle makensis **depuis `installer/`**. Les chemins relatifs `..\target\release` / `..\assets` du `.nsi` ne sont corrects que depuis ce dossier, où `ssb-installer.exe` est aussi produit pour l'étape Publish.

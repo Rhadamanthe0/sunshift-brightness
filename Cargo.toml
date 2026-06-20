@@ -46,8 +46,8 @@ validator = { version = "0.16.1", features = ["derive"] }
 wildmatch = "2.1.1"
 
 [target.'cfg(windows)'.dependencies]
-win32-utils = { git = "https://github.com/jacob-pro/win32-utils", features = ["window", "instance"], rev = "12cb15c0c2d249ff0de6e0249466dbff20448871" }
 console = "0.15.7"
+win32-utils = { git = "https://github.com/jacob-pro/win32-utils", features = ["window", "instance"], rev = "12cb15c0c2d249ff0de6e0249466dbff20448871" }
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.52.0"
@@ -64,8 +64,8 @@ features = [
 nix = "0.22.1"
 
 [target.'cfg(target_os="linux")'.dependencies]
-udev = "0.7.0"
 gtk = "0.18"
+udev = "0.7.0"
 
 [build-dependencies]
 winres = "0.1"
