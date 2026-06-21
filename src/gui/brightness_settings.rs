@@ -1,4 +1,4 @@
-use crate::calculator::calculate_brightness;
+use crate::calculator::{calculate_brightness, next_sample_time};
 use crate::config::{Location, SsbConfig};
 use crate::controller::Message;
 use crate::gui::app::{save_config, AppState, Page, SPACING};
@@ -279,7 +279,7 @@ fn generate_plot_data(
         if current == graph_end {
             break;
         }
-        current = next_time;
+        current = next_sample_time(current, brightness.expiry_time, graph_end);
     }
 
     log::debug!(
