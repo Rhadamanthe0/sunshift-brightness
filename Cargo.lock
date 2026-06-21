@@ -3835,7 +3835,7 @@ dependencies = [
 
 [[package]]
 name = "solar-screen-brightness"
-version = "2.3.2"
+version = "2.3.4"
 dependencies = [
  "anyhow",
  "brightness",

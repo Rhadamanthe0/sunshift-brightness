@@ -63,3 +63,11 @@ pub fn install_logger(debug: bool, to_disk: bool) -> anyhow::Result<()> {
 pub fn get_log_path() -> PathBuf {
     local_data_directory().join("log.txt")
 }
+
+/// Journal des crashs, en mode **ajout** (jamais tronqué) : contrairement à
+/// `log.txt` (recréé à chaque démarrage), il survit aux redémarrages, ce qui est
+/// indispensable pour capturer un panic intermittent dont la preuve serait sinon
+/// effacée par la relance suivante.
+pub fn get_crash_log_path() -> PathBuf {
+    local_data_directory().join("crashes.txt")
+}
