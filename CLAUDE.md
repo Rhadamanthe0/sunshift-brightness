@@ -72,6 +72,6 @@ Fork publié en **privé** sur le compte GitHub de l'utilisateur (CPI). Branche 
 
 **Trois jobs — pièges à connaître :**
 
-- `check_style` = `cargo fmt -- --check` **+ `cargo-sort --check --workspace`**. Garder `Cargo.toml` trié **alphabétiquement dans chaque table**, y compris les `[target.'cfg(...)'.dependencies]` (le tri amont était cassé : il fallait `console` avant `win32-utils`, et `gtk` avant `udev`).
+- `check_style` = `cargo fmt -- --check` **+ `cargo-sort --check --workspace`**. cargo-sort exige, dans `Cargo.toml` : (a) les clés triées **dans chaque table** ; (b) les **tables `[target.*]` elles-mêmes** triées par en-tête (`cfg(target_os="linux")` < `cfg(unix)` < `cfg(windows)`) ; (c) une **virgule finale** dans les tableaux multi-lignes (ex. `features`). Le `Cargo.toml` amont violait (a), (b) et (c). Vérifier sans MSVC : compiler cargo-sort avec la toolchain **gnu** (`cargo +stable-x86_64-pc-windows-gnu install cargo-sort`) et le lancer sur une copie **LF** (la CI tourne sous Linux).
 - `ubuntu` = test + clippy uniquement (ne compile pas le code Windows-only — un échec Windows-only n'y apparaît donc pas).
 - `windows` = test + clippy + build + **installeur**. `makensis` **n'est pas dans le PATH** du runner `windows-latest` : le workflow fait `choco install nsis`, puis appelle makensis **depuis `installer/`**. Les chemins relatifs `..\target\release` / `..\assets` du `.nsi` ne sont corrects que depuis ce dossier, où `ssb-installer.exe` est aussi produit pour l'étape Publish.
