@@ -99,6 +99,12 @@ pub fn calculate_brightness(
     let backwards = brightness_night > brightness_day;
     let morning_decreasing = backwards;
     let evening_decreasing = !backwards;
+    // Transition sinusoïdale centrée sur l'événement (bornée à [event ± half] par
+    // les branches ci-dessous). Capture la config commune pour ne pas répéter les
+    // six mêmes arguments à chaque appel.
+    let transition = |event: i64, decreasing: bool| {
+        sine_curve(time_now, transition_secs, event, decreasing, low, high)
+    };
 
     // Le programme de luminosité est une courbe affine par morceaux construite
     // **uniquement** à partir des événements décalés (`rise`/`set`), sans dépendre
@@ -113,25 +119,11 @@ pub fn calculate_brightness(
         if time_now < rise - half {
             plateau(brightness_night, rise - half)
         } else if time_now < rise + half {
-            sine_curve(
-                time_now,
-                transition_secs,
-                rise,
-                morning_decreasing,
-                low,
-                high,
-            )
+            transition(rise, morning_decreasing)
         } else if time_now < set - half {
             plateau(brightness_day, set - half)
         } else if time_now < set + half {
-            sine_curve(
-                time_now,
-                transition_secs,
-                set,
-                evening_decreasing,
-                low,
-                high,
-            )
+            transition(set, evening_decreasing)
         } else {
             // Transition du soir terminée mais le soleil réel est encore levé :
             // on tient le plateau nuit et on recalcule au coucher réel (événements frais).
@@ -143,25 +135,11 @@ pub fn calculate_brightness(
         if time_now < set - half {
             plateau(brightness_day, set - half)
         } else if time_now < set + half {
-            sine_curve(
-                time_now,
-                transition_secs,
-                set,
-                evening_decreasing,
-                low,
-                high,
-            )
+            transition(set, evening_decreasing)
         } else if time_now < rise - half {
             plateau(brightness_night, rise - half)
         } else if time_now < rise + half {
-            sine_curve(
-                time_now,
-                transition_secs,
-                rise,
-                morning_decreasing,
-                low,
-                high,
-            )
+            transition(rise, morning_decreasing)
         } else {
             // Transition du matin terminée mais le soleil réel n'est pas encore levé :
             // on tient le plateau jour et on recalcule au lever réel (événements frais).
