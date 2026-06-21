@@ -107,13 +107,29 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
 
         window.set_ime_allowed(true);
 
+        // Le backend Direct3D 12 de wgpu plante ici par intermittence : violation
+        // d'accès (0xc0000005) à l'intérieur de `D3D12Core.dll` lors de la création
+        // de la surface (fenêtre blanche quelques secondes puis fermeture sèche, sans
+        // panic Rust). On force donc Vulkan, avec repli OpenGL, pour ne jamais
+        // emprunter le chemin D3D12.
         let wgpu_config = egui_wgpu::WgpuConfiguration {
+            supported_backends: egui_wgpu::wgpu::Backends::VULKAN | egui_wgpu::wgpu::Backends::GL,
             power_preference: PowerPreference::LowPower,
             ..Default::default()
         };
         let mut painter = egui_wgpu::winit::Painter::new(wgpu_config, 1, None, false);
 
         pollster::block_on(painter.set_window(Some(&window))).unwrap();
+
+        // Trace le backend réellement retenu (doit être Vulkan, jamais Dx12 ici).
+        if let Some(render_state) = painter.render_state() {
+            let info = render_state.adapter.get_info();
+            log::info!(
+                "Backend de rendu : {:?} — adaptateur : {}",
+                info.backend,
+                info.name
+            );
+        }
 
         let mut egui_winit = egui_winit::State::new(event_loop);
 

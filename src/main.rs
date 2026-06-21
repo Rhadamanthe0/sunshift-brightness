@@ -157,9 +157,30 @@ fn handle_invalid_args(err: clap::Error) -> ! {
     std::process::exit(2);
 }
 
+/// Enregistre le panic dans un journal de crash persistant (mode ajout), pour
+/// qu'un plantage intermittent survive à la troncature de `log.txt` au
+/// redémarrage suivant. Tolérant : un échec d'écriture n'aggrave pas le crash.
+fn record_crash(info: &dyn std::fmt::Display) {
+    use std::io::Write;
+    let path = solar_screen_brightness::common::get_crash_log_path();
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(
+            f,
+            "[{}] {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            info
+        );
+    }
+}
+
 #[cfg(not(windows))]
 fn set_panic_hook() {
     std::panic::set_hook(Box::new(move |info| {
+        record_crash(info);
         log::error!("Fatal error: {}", info);
         std::process::exit(1);
     }));
@@ -174,6 +195,7 @@ fn set_panic_hook() {
     use windows::Win32::UI::WindowsAndMessaging::{MB_ICONSTOP, MB_OK};
 
     std::panic::set_hook(Box::new(move |info| unsafe {
+        record_crash(info);
         log::error!("Fatal error: {}", info);
         let title = "Fatal Error".to_wchar();
         let text = format!("{}", info).to_wchar();
