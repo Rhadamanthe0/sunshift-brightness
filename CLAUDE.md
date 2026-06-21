@@ -23,12 +23,15 @@ Implémentation — même chaîne de paramètres que `transition_mins` :
 | `src/apply.rs`, `src/controller.rs`, `src/cli.rs` | Propagation du paramètre. |
 | `src/gui/brightness_settings.rs` | 2 sliders (−180..180) + courbe d'aperçu mise à jour. |
 
+**Piège corrigé — boucle infinie / crash.** Le décalage déplace `rise`/`set` mais **pas** `sun.visible` (position réelle du soleil, calculée par la lib). Dans la fenêtre où les deux divergent, `calculate_brightness` peut renvoyer une `expiry_time` **dans le passé**. Conséquences : (1) la boucle d'échantillonnage du graphe (`generate_plot_data`) faisait `current = expiry` sans progresser → **boucle infinie → OOM → crash à l'ouverture de l'onglet Brightness** ; (2) le contrôleur temps-réel pouvait **busy-looper** (sleep 0). Garde-fous en place : `calculator::next_sample_time` (progression stricte, ≥ 15 min en zone plate, **testé**) et un sleep minimal de 60 s dans `controller.rs`. Ne pas réintroduire un `current = expiry` nu.
+
 ## Build (IMPORTANT)
 
 - Toolchain : **Rust stable msvc** (via rustup) + **Build Tools MSVC** (linker `link.exe` + `rc.exe`).
+- **Alternative sans MSVC (validée)** : toolchain **gnu** + linker mingw. `rustup toolchain install stable-x86_64-pc-windows-gnu`, mettre `C:\Strawberry\c\bin` (Strawberry Perl : `gcc`/`windres`) sur le PATH, puis `cargo +stable-x86_64-pc-windows-gnu build --release`. Sert quand `link.exe`/MSVC est absent. Voir mémoire [[ssb-build-without-msvc-gnu]].
 - **Ne jamais laisser `target/` dans le Drive.** Le FS virtuel Google Drive rejette certaines opérations de cargo (**os error 87**, « Paramètre incorrect ») ET synchroniser des Go d'artefacts gaspille la bande passante. La sortie est redirigée hors du Drive via `.cargo/config.toml` → `C:\Users\user\AppData\Local\ssb-target`. Ce fichier est **machine-spécifique** et **gitignoré** (ne pas committer).
 - Compiler : à la racine du projet, `cargo build --release`. Binaires produits dans `…\AppData\Local\ssb-target\release\` : **`ssb.exe`** (GUI + icône de barre des tâches) et **`ssb-cli.exe`**.
-- `build.rs` intègre l'icône via `winres` ; rendu **tolérant** : avertit au lieu d'échouer si `rc.exe` manque (l'icône de l'exe est cosmétique).
+- `build.rs` intègre l'icône : via `winres`/`rc.exe` en **msvc**, via un `.rc` minimal + `windres` en **gnu** (winres écrit le chemin de l'icône avec des backslashes que windres rejette). Rendu **tolérant** : avertit au lieu d'échouer si aucun compilateur de ressources n'est dispo (l'icône de fichier est cosmétique).
 
 ## Installation
 

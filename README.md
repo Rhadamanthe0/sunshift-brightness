@@ -34,8 +34,8 @@ This changes the screen brightness via monitor control APIs, whereas those utili
 
 ### How to Install
 
-For Windows, you can download pre-compiled binaries from
-[Releases](https://github.com/jacob-pro/solar-screen-brightness/releases).
+For Windows, you can download pre-compiled binaries from this fork's
+[Releases page](https://github.com/Rhadamanthe0/custom-solar-screen-brightness/releases).
 
 If you are using Linux, please read the [Linux Guide](linux/README.md)
 
@@ -64,6 +64,15 @@ A pre-built Windows installer (`ssb-installer.exe`, NSIS, no admin rights) is pr
 First run: open the settings from the tray icon and set your **Location**, then Day/Night brightness, Transition, and the new **Sunrise/Sunset Advance**. Nothing is adjusted until a location is set.
 
 To uninstall: Start Menu → *Uninstall Custom Solar Screen Brightness*.
+
+### Build from source
+
+`cargo build --release` produces `ssb.exe` (tray GUI) and `ssb-cli.exe`. The app
+icon is embedded into the executables at build time: with the **MSVC** toolchain
+via `rc.exe`, and with the **GNU** toolchain via `windres` (the build script picks
+the right one). If no resource compiler is available the build still succeeds —
+only the file icon shown in Explorer is skipped (the tray icon is loaded at
+runtime).
 
 To rebuild the installer from source (requires `makensis`):
 
