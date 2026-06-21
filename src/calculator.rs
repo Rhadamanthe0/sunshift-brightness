@@ -60,6 +60,14 @@ fn sine_curve(
     }
 }
 
+/// Plateau jour ou nuit : luminosité constante jusqu'à la prochaine bascule.
+fn plateau(brightness: u32, expiry: i64) -> BrightnessResult {
+    BrightnessResult {
+        expiry_time: Some(expiry),
+        brightness,
+    }
+}
+
 pub fn calculate_brightness(
     brightness_day: u32,
     brightness_night: u32,
@@ -84,56 +92,80 @@ pub fn calculate_brightness(
 
     let low = brightness_day.min(brightness_night);
     let high = brightness_day.max(brightness_night);
-    let transition_secs = transition_mins * 60; //time for transition from low to high
-    let half_transition_secs = (transition_secs / 2) as i64;
-
-    let (time_a, time_b) = if sun.visible {
-        // Daytime
-        (
-            rise + half_transition_secs, // When the sun rose this morning  + transition
-            set - half_transition_secs,
-        ) // Whe the sun sets this evening - transition
-    } else {
-        // Nighttime
-        (
-            set + half_transition_secs, // When the sun set at the start of night + transition
-            rise - half_transition_secs,
-        ) // When the sun will rise again - transition
-    };
-
-    // If nighttime brightness is greater than day (weird!) then we need to flip around.
+    let transition_secs = transition_mins * 60; // time for transition from low to high
+    let half = (transition_secs / 2) as i64;
+    // If nighttime brightness is greater than day (weird!) the sine slopes flip:
+    // the morning event then dims, and the evening event brightens.
     let backwards = brightness_night > brightness_day;
+    let morning_decreasing = backwards;
+    let evening_decreasing = !backwards;
 
-    if time_now < time_a {
-        let event = if sun.visible { rise } else { set };
-        sine_curve(
-            time_now,
-            transition_secs,
-            event,
-            !(sun.visible ^ backwards),
-            low,
-            high,
-        )
-    } else if time_now >= time_b {
-        // Must be greater or equal to or it would get stuck in a loop
-        let event = if sun.visible { set } else { rise };
-        sine_curve(
-            time_now,
-            transition_secs,
-            event,
-            sun.visible ^ backwards,
-            low,
-            high,
-        )
+    // Le programme de luminosité est une courbe affine par morceaux construite
+    // **uniquement** à partir des événements décalés (`rise`/`set`), sans dépendre
+    // de `sun.visible`. Choisir le régime sur `sun.visible` évaluerait la sinusoïde
+    // hors de sa fenêtre lorsqu'un décalage éloigne une transition de l'événement
+    // solaire réel, créant un pic parasite entre la transition décalée et cet
+    // événement. Ici, chaque transition est bornée à [event - half, event + half]
+    // et les plateaux la prolongent : le décalage devient un simple glissement.
+    if sun.visible {
+        // Journée : la transition du matin est derrière nous, celle du soir devant.
+        //   nuit | rise-half [montée] rise+half | jour | set-half [descente] set+half | nuit
+        if time_now < rise - half {
+            plateau(brightness_night, rise - half)
+        } else if time_now < rise + half {
+            sine_curve(
+                time_now,
+                transition_secs,
+                rise,
+                morning_decreasing,
+                low,
+                high,
+            )
+        } else if time_now < set - half {
+            plateau(brightness_day, set - half)
+        } else if time_now < set + half {
+            sine_curve(
+                time_now,
+                transition_secs,
+                set,
+                evening_decreasing,
+                low,
+                high,
+            )
+        } else {
+            // Transition du soir terminée mais le soleil réel est encore levé :
+            // on tient le plateau nuit et on recalcule au coucher réel (événements frais).
+            plateau(brightness_night, sun.set)
+        }
     } else {
-        // Time is >=A and <B, therefore the brightness next change is at B
-        BrightnessResult {
-            expiry_time: Some(time_b),
-            brightness: if sun.visible {
-                brightness_day
-            } else {
-                brightness_night
-            },
+        // Nuit : la transition du soir est derrière nous, celle du matin devant.
+        //   jour | set-half [descente] set+half | nuit | rise-half [montée] rise+half | jour
+        if time_now < set - half {
+            plateau(brightness_day, set - half)
+        } else if time_now < set + half {
+            sine_curve(
+                time_now,
+                transition_secs,
+                set,
+                evening_decreasing,
+                low,
+                high,
+            )
+        } else if time_now < rise - half {
+            plateau(brightness_night, rise - half)
+        } else if time_now < rise + half {
+            sine_curve(
+                time_now,
+                transition_secs,
+                rise,
+                morning_decreasing,
+                low,
+                high,
+            )
+        } else {
+            // Transition du matin terminée mais le soleil réel n'est pas encore levé :
+            // on tient le plateau jour et on recalcule au lever réel (événements frais).
+            plateau(brightness_day, sun.rise)
         }
     }
 }
@@ -256,5 +288,57 @@ mod tests {
         assert_eq!(next_sample_time(1_000, Some(500), 10_000), 1_900); // passé -> +15 min
         assert_eq!(next_sample_time(1_000, Some(1_000), 10_000), 1_900); // égal -> +15 min
         assert_eq!(next_sample_time(9_000, Some(500), 9_100), 9_100); // borné à end
+    }
+
+    // Régression : avec des décalages, la courbe doit rester un simple glissement
+    // (plateau, transition, plateau) sans pic parasite. On échantillonne 24 h —
+    // un coucher puis un lever — et on compte les inversions de sens : une courbe
+    // propre en a exactement une (le creux de la nuit) ; la version buguée en
+    // avait plusieurs (remontée à mi-hauteur après le coucher, et symétrique au lever).
+    #[test]
+    fn test_offsets_produce_clean_shifted_curve() {
+        use sunrise_sunset_calculator::SunriseSunsetParameters;
+        let (day, night, transition, sr_off, ss_off) = (100u32, 20u32, 60u32, 60i32, 60i32);
+        let (lat, lon) = (48.884_15, 2.236_89);
+        // Démarre à midi UTC (plein jour) pour englober un coucher puis un lever.
+        let start = Utc
+            .with_ymd_and_hms(2026, 6, 21, 12, 0, 0)
+            .unwrap()
+            .timestamp();
+
+        let mut samples = Vec::new();
+        for step in 0..=(24 * 12) {
+            let t = start + step * 300; // toutes les 5 min sur 24 h
+            let sun = SunriseSunsetParameters::new(t, lat, lon)
+                .calculate()
+                .unwrap();
+            let b = calculate_brightness(day, night, transition, sr_off, ss_off, &sun, t);
+            samples.push(b.brightness);
+        }
+
+        // La luminosité ne doit jamais sortir de [night, day].
+        assert!(
+            samples.iter().all(|&b| (night..=day).contains(&b)),
+            "luminosité hors bornes : {samples:?}"
+        );
+
+        // Compte les changements de sens (les paliers sont ignorés).
+        let mut dir = 0i32;
+        let mut reversals = 0;
+        for w in samples.windows(2) {
+            let d = w[1] as i32 - w[0] as i32;
+            if d == 0 {
+                continue;
+            }
+            let nd = d.signum();
+            if dir != 0 && nd != dir {
+                reversals += 1;
+            }
+            dir = nd;
+        }
+        assert!(
+            reversals <= 1,
+            "courbe non propre : {reversals} inversions de sens (pic parasite ?) : {samples:?}"
+        );
     }
 }
