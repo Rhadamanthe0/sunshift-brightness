@@ -80,9 +80,12 @@ fn run<F: Fn()>(
                 receiver.recv().map_err(|e| e.into())
             }
             Some(timeout) => {
+                // Si l'expiry calculée est dans le passé (zone plate désynchronisée
+                // par les décalages sunrise/sunset), `duration_since` échoue :
+                // attendre 60 s plutôt que 0 évite un busy-loop à 100 % de CPU.
                 let duration = timeout
                     .duration_since(SystemTime::now())
-                    .unwrap_or_default();
+                    .unwrap_or_else(|_| Duration::from_secs(60));
                 log::info!(
                     "BrightnessController sleeping for {}s",
                     duration.human_duration()

@@ -138,6 +138,21 @@ pub fn calculate_brightness(
     }
 }
 
+/// Instant d'échantillonnage suivant, garantissant une progression **stricte**.
+///
+/// `calculate_brightness` peut renvoyer une `expiry_time` <= `current` dans les
+/// zones plates que les décalages sunrise/sunset désynchronisent de
+/// `sun.visible`. Sans garde, une boucle `current = expiry` n'avance plus et
+/// tourne à l'infini (puis épuise la mémoire). On force alors un pas de 15 min.
+pub fn next_sample_time(current: i64, expiry: Option<i64>, end: i64) -> i64 {
+    let next = expiry.unwrap_or(end).min(end);
+    if next > current {
+        next
+    } else {
+        (current + 15 * 60).min(end)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +212,49 @@ mod tests {
         let end_of_transition = Utc.ymd(2018, 12, 2).and_hms(8, 20, 0).timestamp();
         let r = sine_curve(end_of_transition, t_secs, rise, false, low, high);
         assert_eq!(high, r.brightness); // 76
+    }
+
+    // Régression : avec des décalages sunrise/sunset, `calculate_brightness`
+    // peut renvoyer une `expiry_time` <= `time_now` (zone plate désynchronisée
+    // de `sun.visible`). La boucle d'échantillonnage du graphe doit malgré tout
+    // toujours progresser, sinon elle tourne à l'infini (OOM).
+    #[test]
+    fn test_plot_loop_with_offsets_always_progresses() {
+        use sunrise_sunset_calculator::SunriseSunsetParameters;
+        let (day, night, transition, sr_off, ss_off) = (100u32, 20u32, 60u32, 60i32, 60i32);
+        let (lat, lon) = (48.884_15, 2.236_89);
+        // Balaie chaque "now" sur 48 h pour couvrir la fenêtre pathologique.
+        for hour in 0..48i64 {
+            let now = Utc
+                .with_ymd_and_hms(2026, 6, 21, 0, 0, 0)
+                .unwrap()
+                .timestamp()
+                + hour * 3600;
+            let graph_start = now - 2 * 3600;
+            let graph_end = now + 22 * 3600;
+            let mut current = graph_start;
+            let mut iters = 0u64;
+            while current <= graph_end {
+                iters += 1;
+                assert!(
+                    iters < 100_000,
+                    "boucle non terminante : now={now}, bloque a current={current}"
+                );
+                let sun = SunriseSunsetParameters::new(current, lat, lon)
+                    .calculate()
+                    .unwrap();
+                let b = calculate_brightness(day, night, transition, sr_off, ss_off, &sun, current);
+                if current == graph_end {
+                    break;
+                }
+                current = next_sample_time(current, b.expiry_time, graph_end);
+            }
+        }
+
+        // Vérifications directes du garde de progression.
+        assert_eq!(next_sample_time(1_000, Some(2_000), 10_000), 2_000); // futur -> expiry
+        assert_eq!(next_sample_time(1_000, Some(500), 10_000), 1_900); // passé -> +15 min
+        assert_eq!(next_sample_time(1_000, Some(1_000), 10_000), 1_900); // égal -> +15 min
+        assert_eq!(next_sample_time(9_000, Some(500), 9_100), 9_100); // borné à end
     }
 }
