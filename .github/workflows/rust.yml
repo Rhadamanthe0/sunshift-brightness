@@ -5,6 +5,12 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
 
+# L'étape « Publish Release Artifacts » (sur tag) crée une Release via le
+# GITHUB_TOKEN. Par défaut le dépôt le fournit en lecture seule -> échec 403.
+# On lui accorde l'écriture du contenu (suffisant : checkout + création de Release).
+permissions:
+  contents: write
+
 jobs:
 
   windows:
