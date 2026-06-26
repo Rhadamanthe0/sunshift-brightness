@@ -6,6 +6,8 @@ Fork personnel de **solar-screen-brightness** (jacob-pro, LGPL-3.0), écrit en *
 
 Source amont : https://github.com/jacob-pro/solar-screen-brightness
 
+**Rédaction & vérification (messages, courriers, commentaires)** : tout texte produit ou modifié doit être **univoque, clair, organisé, concis, complet et sans doublon** ; **relire systématiquement** pour le vérifier — cf. CLAUDE.md racine du Drive, « Style de rédaction ».
+
 ## Apport du fork : décalage lever/coucher
 
 Deux réglages ajoutés, **Sunrise Advance** et **Sunset Advance** (minutes, signés), qui décalent **indépendamment** les transitions du matin et du soir par rapport à l'instant solaire réel.
