@@ -1,5 +1,8 @@
 # CLAUDE.md — solar-screen-brightness (fork)
 
+> ⚠️ **Chemin du Drive : espace INSÉCABLE (U+00A0).** Le point de montage `c:\Users\user\Accès Google Drive\Mon Drive` contient une espace **insécable** entre « Google » et « Drive » (U+00A0, pas une espace ordinaire). Les outils à **chemin absolu** — `Read` / `Edit` / `Grep` — **échouent** si l'on y tape une espace normale. Contourner via **PowerShell** : chemin **relatif** depuis la racine, ou `(Get-Item -LiteralPath (Join-Path (Get-Location) "<chemin\relatif>")).FullName` pour obtenir le vrai chemin, puis lire/écrire avec `[System.IO.File]::ReadAllText` / `WriteAllText`. (Détail : CLAUDE.md racine, « Pièges connus ».)
+
+
 ## Nature
 
 Fork personnel de **solar-screen-brightness** (jacob-pro, LGPL-3.0), écrit en **Rust**. L'application ajuste automatiquement la luminosité des moniteurs (DDC/CI) selon le lever/coucher du soleil. C'est une **exception** à la règle « pas de code » de `Logiciels/` : un vrai projet compilable, conservé ici car c'est un outil Windows.
