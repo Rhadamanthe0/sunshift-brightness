@@ -23,14 +23,55 @@ permissions:
   checks: write
 
 jobs:
-  update-gate:
-    name: Update Codex review gate
+  # Not serialized: unauthorized comments never enter the shared gate queue.
+  authorize-comment:
+    name: Authorize review command
     # Filter on the author so that third-party edits also invalidate the status.
     if: >-
-      github.event_name != 'issue_comment' ||
-      (github.event.issue.pull_request &&
-       (github.event.comment.user.id == 199175422 ||
-        contains(github.event.comment.body, '@codex')))
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      (github.event.comment.user.id == 199175422 ||
+       contains(github.event.comment.body, '@codex'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - id: check
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const BOT_ID = 199175422;
+            const user = context.payload.comment?.user;
+            let allowed = false;
+            if (user?.id === BOT_ID) allowed = true;
+            else if (!user || user.type === 'Bot' || !user.login) allowed = false;
+            else if (user.id === 37266002) allowed = true;
+            else {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  ...context.repo, username: user.login,
+                });
+                allowed = ['write', 'maintain', 'admin'].includes(data.permission) && data.user?.id === user.id;
+              } catch (error) {
+                // Undetermined: the gate job re-verifies and publishes a failing check.
+                if (error.status !== 404) allowed = true;
+              }
+            }
+            core.info(`Review command author ${user?.login ?? 'unknown'}: ${allowed ? 'admitted' : 'ignored'}.`);
+            core.setOutput('allowed', String(allowed));
+
+  update-gate:
+    name: Update Codex review gate
+    needs: authorize-comment
+    # A failed preflight also proceeds, so that the gate job fails closed.
+    if: >-
+      (github.event_name != 'issue_comment' ||
+       needs.authorize-comment.outputs.allowed == 'true' ||
+       needs.authorize-comment.result == 'failure') &&
+      !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
