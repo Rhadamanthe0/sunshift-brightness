@@ -52,7 +52,7 @@ jobs:
 
     steps:
       - name: Install Ubuntu dependencies
-        run: sudo apt update && sudo apt install -y libudev-dev libgtk-3-dev libxdo-dev
+        run: sudo apt update && sudo apt install -y libudev-dev libxdo-dev
 
       - uses: actions/checkout@v4
 
