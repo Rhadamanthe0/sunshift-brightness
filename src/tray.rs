@@ -3,7 +3,7 @@ use crate::gui::UserEvent;
 use egui_winit::winit::event_loop::{EventLoop, EventLoopProxy};
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItemBuilder};
-use tray_icon::{ClickType, Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::{Icon, MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 const MENU_ID_OPEN: &str = "OPEN";
 const MENU_ID_EXIT: &str = "EXIT";
@@ -17,19 +17,8 @@ pub fn read_icon() -> (Vec<u8>, png::OutputInfo) {
     (buf, info)
 }
 
-#[cfg(target_os = "linux")]
-pub fn create(event_loop: &EventLoop<UserEvent>) -> std::thread::JoinHandle<()> {
-    let proxy = event_loop.create_proxy();
-    // https://github.com/tauri-apps/tray-icon/blob/817d85579b406ddf83891017edb8c7e290bfaa8e/examples/egui.rs#L13-L15
-    std::thread::spawn(move || {
-        gtk::init().unwrap();
-        // must not drop tray
-        let _tray = create_internal(proxy);
-        gtk::main();
-    })
-}
-
-#[cfg(not(target_os = "linux"))]
+// Backend ksni (StatusNotifier D-Bus) sur Linux : pas de boucle gtk à
+// initialiser, le comportement est identique sur tous les OS.
 pub fn create(event_loop: &EventLoop<UserEvent>) -> TrayIcon {
     create_internal(event_loop.create_proxy())
 }
@@ -63,7 +52,13 @@ fn create_internal(event_loop: EventLoopProxy<UserEvent>) -> TrayIcon {
     let menu_loop = Arc::new(Mutex::new(event_loop));
 
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
-        if event.click_type == ClickType::Left {
+        if matches!(
+            event,
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                ..
+            }
+        ) {
             tray_loop
                 .lock()
                 .unwrap()
