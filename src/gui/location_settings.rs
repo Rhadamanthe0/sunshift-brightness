@@ -5,7 +5,7 @@ use crate::gui::app::{
 };
 use crate::gui::UserEvent;
 use egui::{Context, Widget};
-use geocoding::{Forward, GeocodingError, Openstreetmap};
+use serde::Deserialize;
 use validator::Validate;
 
 pub struct LocationSettingsPage {
@@ -124,6 +124,45 @@ impl Modal for SpinnerModal {
     }
 }
 
+/// Point renvoyé par Nominatim (OpenStreetMap) pour une recherche directe.
+/// `lat`/`lon` arrivent en chaînes dans le JSON (`format=jsonv2`).
+#[derive(Debug, Deserialize)]
+struct NominatimResult {
+    lat: String,
+    lon: String,
+}
+
+/// Extrait le premier résultat Nominatim (`lat`/`lon` en chaînes JSON).
+fn parse_first_result(json: &str) -> anyhow::Result<Option<(f64, f64)>> {
+    let results: Vec<NominatimResult> = serde_json::from_str(json)?;
+    results
+        .into_iter()
+        .next()
+        .map(|r| Ok::<_, anyhow::Error>((r.lat.parse::<f64>()?, r.lon.parse::<f64>()?)))
+        .transpose()
+}
+
+/// Recherche Nominatim directe via reqwest 0.12 (remplace `geocoding 0.4`).
+/// Politique d'usage Nominatim : User-Agent identifiant avec contact projet.
+fn forward_search(query: &str) -> anyhow::Result<Option<(f64, f64)>> {
+    let user_agent = format!(
+        "{}/{} (https://github.com/jacob-pro/solar-screen-brightness)",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+    );
+    let body = reqwest::blocking::Client::new()
+        .get("https://nominatim.openstreetmap.org/search")
+        .query(&[("q", query), ("format", "jsonv2"), ("limit", "1")])
+        .header(reqwest::header::USER_AGENT, user_agent)
+        .send()
+        .map_err(anyhow::Error::from)?
+        .error_for_status()
+        .map_err(anyhow::Error::from)?
+        .text()
+        .map_err(anyhow::Error::from)?;
+    parse_first_result(&body)
+}
+
 fn on_search(app_state: &mut AppState, search_string: String) {
     // Show the spinner modal
     app_state
@@ -134,13 +173,8 @@ fn on_search(app_state: &mut AppState, search_string: String) {
     let transitions = app_state.transitions.clone();
     let proxy = app_state.main_loop.clone();
     std::thread::spawn(move || {
-        let result = Openstreetmap::new()
-            .forward(&search_string)
-            .map_err(|x| match x {
-                GeocodingError::Request(r) => anyhow::Error::from(r),
-                _ => anyhow::Error::from(x),
-            });
-        match result.map(|e| e.into_iter().next()) {
+        let result = forward_search(&search_string);
+        match result {
             Ok(None) => transitions.queue_state_transition(move |app| {
                 app.modal = Some(Box::new(MessageModal {
                     title: "No results".to_string(),
@@ -149,8 +183,8 @@ fn on_search(app_state: &mut AppState, search_string: String) {
             }),
             Ok(Some(p)) => {
                 transitions.queue_state_transition(move |app| {
-                    app.location_settings_page.latitude = coord_to_string(p.y());
-                    app.location_settings_page.longitude = coord_to_string(p.x());
+                    app.location_settings_page.latitude = coord_to_string(p.0);
+                    app.location_settings_page.longitude = coord_to_string(p.1);
                     app.modal = None;
                 });
             }
@@ -170,4 +204,23 @@ fn on_search(app_state: &mut AppState, search_string: String) {
             .send_event(UserEvent::RepaintNow("Location Search Completed"))
             .unwrap();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_first_result;
+
+    #[test]
+    fn parses_first_nominatim_result() {
+        let json = r#"[{"place_id":1,"lat":"48.8566","lon":"2.3522",
+            "display_name":"Paris, France"}]"#;
+        let (lat, lon) = parse_first_result(json).unwrap().unwrap();
+        assert!((lat - 48.8566).abs() < 1e-9);
+        assert!((lon - 2.3522).abs() < 1e-9);
+    }
+
+    #[test]
+    fn empty_nominatim_response_is_no_result() {
+        assert!(parse_first_result("[]").unwrap().is_none());
+    }
 }

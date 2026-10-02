@@ -27,7 +27,6 @@ egui-wgpu = { version = "0.22.0", features = ["winit"] }
 egui-winit = { version = "0.22.0" }
 ellipse = "0.2.0"
 enum-iterator = "1.4.1"
-geocoding = "0.4.0"
 human-repr = "1.1.0"
 image = "0.24.7"
 itertools = "0.11.0"
@@ -35,6 +34,7 @@ log = "0.4.14"
 num = "0.4.1"
 png = "0.17.10"
 pollster = "0.3.0"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 serde = { version = "1.0.110", features = ["derive"] }
 serde_json = "1.0.104"
 simplelog = "0.12.1"
