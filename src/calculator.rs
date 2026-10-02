@@ -173,16 +173,25 @@ mod tests {
         let low = 40;
         let high = 80;
         let t_secs = 60 * 60; //60 minutes
-        let set = Utc.ymd(2018, 12, 2).and_hms(16, 0, 0).timestamp(); // Fictional
+        let set = Utc
+            .with_ymd_and_hms(2018, 12, 2, 16, 0, 0)
+            .unwrap()
+            .timestamp(); // Fictional
         let midpoint = (low as f64 + ((high - low) as f64 / 2.0)).round() as u32;
 
         // At start of the transition it should equal the day brightness
-        let transition_start = Utc.ymd(2018, 12, 2).and_hms(15, 30, 0).timestamp();
+        let transition_start = Utc
+            .with_ymd_and_hms(2018, 12, 2, 15, 30, 0)
+            .unwrap()
+            .timestamp();
         let r = sine_curve(transition_start, t_secs, set, true, low, high);
         assert_eq!(high, r.brightness); //80
 
         //Test part way between transition. It should be less than the daytime brightness. But greater than the midpoint because it is not yet sunset
-        let before_sunset = Utc.ymd(2018, 12, 2).and_hms(15, 45, 0).timestamp();
+        let before_sunset = Utc
+            .with_ymd_and_hms(2018, 12, 2, 15, 45, 0)
+            .unwrap()
+            .timestamp();
         let r = sine_curve(before_sunset, t_secs, set, true, low, high);
         assert!(r.brightness < high && r.brightness > midpoint); //~74
 
@@ -191,7 +200,10 @@ mod tests {
         assert_eq!(midpoint, r.brightness); //60
 
         //At end of the transition it should equal the night brightness
-        let transition_end = Utc.ymd(2018, 12, 2).and_hms(16, 30, 0).timestamp();
+        let transition_end = Utc
+            .with_ymd_and_hms(2018, 12, 2, 16, 30, 0)
+            .unwrap()
+            .timestamp();
         let r = sine_curve(transition_end, t_secs, set, true, low, high);
         assert_eq!(r.brightness, low); // 40
     }
@@ -201,16 +213,25 @@ mod tests {
         let low = 35;
         let high = 76;
         let t_secs = 40 * 60; //40 minutes
-        let rise = Utc.ymd(2018, 12, 2).and_hms(8, 0, 0).timestamp(); // Fictional
+        let rise = Utc
+            .with_ymd_and_hms(2018, 12, 2, 8, 0, 0)
+            .unwrap()
+            .timestamp(); // Fictional
         let midpoint = (low as f64 + ((high - low) as f64 / 2.0)).round() as u32;
 
         //At start of the transition it should equal the night brightness
-        let start_of_transition = Utc.ymd(2018, 12, 2).and_hms(7, 40, 0).timestamp();
+        let start_of_transition = Utc
+            .with_ymd_and_hms(2018, 12, 2, 7, 40, 0)
+            .unwrap()
+            .timestamp();
         let r = sine_curve(start_of_transition, t_secs, rise, false, low, high);
         assert_eq!(low, r.brightness); // 35
 
         //Test part way between transition. It should be greater than night brighness. But less than the midpoint because it is not yet sunrise
-        let before_sunrise = Utc.ymd(2018, 12, 2).and_hms(7, 50, 0).timestamp();
+        let before_sunrise = Utc
+            .with_ymd_and_hms(2018, 12, 2, 7, 50, 0)
+            .unwrap()
+            .timestamp();
         let r = sine_curve(before_sunrise, t_secs, rise, false, low, high);
         assert!(r.brightness > low && r.brightness < midpoint); //~41
 
@@ -219,7 +240,10 @@ mod tests {
         assert_eq!(midpoint, r.brightness); //55.5 is rounded to 56
 
         //At end of the transition it should equal the daytime brightness
-        let end_of_transition = Utc.ymd(2018, 12, 2).and_hms(8, 20, 0).timestamp();
+        let end_of_transition = Utc
+            .with_ymd_and_hms(2018, 12, 2, 8, 20, 0)
+            .unwrap()
+            .timestamp();
         let r = sine_curve(end_of_transition, t_secs, rise, false, low, high);
         assert_eq!(high, r.brightness); // 76
     }

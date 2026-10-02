@@ -37,10 +37,10 @@ pub struct SsbConfig {
     #[serde(default)]
     #[validate(range(min = -180, max = 180))]
     pub sunset_offset_mins: i32,
-    #[validate]
+    #[validate(nested)]
     pub location: Option<Location>,
     #[serde(default)]
-    #[validate]
+    #[validate(nested)]
     pub overrides: Vec<MonitorOverride>,
 }
 
@@ -74,7 +74,7 @@ impl MonitorProperty {
 pub struct MonitorOverride {
     pub pattern: String,
     pub key: MonitorProperty,
-    #[validate]
+    #[validate(nested)]
     pub brightness: Option<BrightnessValues>,
 }
 
