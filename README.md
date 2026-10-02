@@ -1,6 +1,6 @@
 # Solar Screen Brightness
 
-[![Build status](https://github.com/Rhadamanthe0/custom-solar-screen-brightness/actions/workflows/rust.yml/badge.svg)](https://github.com/Rhadamanthe0/custom-solar-screen-brightness/actions)
+[![Build status](https://github.com/Rhadamanthe0/sunshift-brightness/actions/workflows/rust.yml/badge.svg)](https://github.com/Rhadamanthe0/sunshift-brightness/actions)
 
 Automatically and smoothly adjusts monitor brightness based on the sunrise/sunset times at your location.
 
@@ -13,7 +13,7 @@ Automatically and smoothly adjusts monitor brightness based on the sunrise/sunse
 > early in the morning and dims early in the evening). When both are `0` the behaviour is identical to
 > upstream.
 >
-> This is an **unofficial fork** of [Solar Screen Brightness](https://github.com/jacob-pro/solar-screen-brightness)
+> Sunshift Brightness is an **unofficial fork** of [Solar Screen Brightness](https://github.com/jacob-pro/solar-screen-brightness)
 > by **Jacob Halsey** ([jacob-pro](https://github.com/jacob-pro)), licensed under **LGPL-3.0**. All credit for the
 > original application goes to the original author; this fork only adds the Sunrise/Sunset Advance feature.
 
@@ -35,7 +35,7 @@ This changes the screen brightness via monitor control APIs, whereas those utili
 ### How to Install
 
 For Windows, you can download pre-compiled binaries from this fork's
-[Releases page](https://github.com/Rhadamanthe0/custom-solar-screen-brightness/releases).
+[Releases page](https://github.com/Rhadamanthe0/sunshift-brightness/releases).
 
 If you are using Linux, please read the [Linux Guide](linux/README.md)
 
