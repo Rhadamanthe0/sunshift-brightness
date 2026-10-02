@@ -13,9 +13,9 @@ const CONFIG_FILE_NAME: &str = "config.json";
 
 #[derive(Debug, Deserialize, Serialize, Validate, Clone, Copy, PartialEq)]
 pub struct Location {
-    #[validate(range(min = -90, max = 90))]
+    #[validate(range(min = -90.0, max = 90.0))]
     pub latitude: f64,
-    #[validate(range(min = -180, max = 180))]
+    #[validate(range(min = -180.0, max = 180.0))]
     pub longitude: f64,
 }
 
