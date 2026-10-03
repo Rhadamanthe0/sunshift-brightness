@@ -56,12 +56,13 @@ jobs:
             ./installer/ssb-installer.exe
 
   ubuntu:
-    # MINIPC-CLEM : dépendances via apt (le runner tourne en root).
+    # MINIPC-CLEM : libudev-dev, libxdo-dev et la chaîne C sont dans l'image du
+    # runner. apt-get y est impossible (root sans capacité : setgroups refusé).
     runs-on: [self-hosted, linux, x64, minipc, podman]
 
     steps:
-      - name: Install Ubuntu dependencies
-        run: apt-get update && apt-get install -y libudev-dev libxdo-dev
+      - name: Check Ubuntu dependencies
+        run: dpkg -s libudev-dev libxdo-dev build-essential pkg-config >/dev/null
 
       - uses: actions/checkout@v4
 
