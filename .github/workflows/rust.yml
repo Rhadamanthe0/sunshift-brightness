@@ -11,6 +11,11 @@ env:
 permissions:
   contents: write
 
+# Un push annule le run precedent de la meme branche (pas de file inutile).
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
 
   windows:
@@ -18,6 +23,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Cargo Test
         run: cargo test
@@ -48,13 +56,22 @@ jobs:
             ./installer/ssb-installer.exe
 
   ubuntu:
-    runs-on: ubuntu-latest
+    # MINIPC-CLEM : dépendances via apt (le runner tourne en root).
+    runs-on: [self-hosted, linux, x64, minipc, podman]
 
     steps:
       - name: Install Ubuntu dependencies
-        run: sudo apt update && sudo apt install -y libudev-dev libxdo-dev
+        run: apt-get update && apt-get install -y libudev-dev libxdo-dev
 
       - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Cargo Test
         run: cargo test
@@ -63,9 +80,15 @@ jobs:
         run: cargo clippy -- -D warnings
 
   check_style:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, minipc, podman]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt
 
       - name: Cargo Format
         run: cargo fmt -- --check
