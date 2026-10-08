@@ -11,7 +11,7 @@ on:
         options: [all, linux, windows]
         default: all
       windows_runner:
-        description: Windows runner (self-hosted requires the sunshift label)
+        description: Windows runner
         type: choice
         options: [self-hosted, github-hosted]
         default: self-hosted
@@ -34,7 +34,7 @@ jobs:
 
   windows:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_runner == 'self-hosted' && fromJSON('["self-hosted", "windows", "x64", "sunshift"]') || 'windows-latest' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_runner == 'self-hosted' && fromJSON('["self-hosted", "windows", "x64"]') || 'windows-latest' }}
     defaults:
       run:
         shell: powershell

@@ -12,7 +12,7 @@ Windows runner or its billing allowance.
    choose **New self-hosted runner**, then **Windows / x64**.
 2. Follow GitHub's download and configuration commands on the Windows PC.
    Keep the runner and its work directory on a local disk, outside Google Drive.
-   When configuration asks for additional labels, enter `sunshift`.
+   Keep the default labels `self-hosted`, `windows`, `x64`.
    The registration token stays on that PC; do not put it in the repository.
 3. The runner account needs Git, Rust Cargo and Clippy, a working Rust linker
    (MSVC Build Tools or the GNU/MinGW setup described in `CLAUDE.md`), and NSIS 3.
@@ -48,8 +48,8 @@ same platform and runner selections in the GitHub UI. Automatic push/PR runs
 still use `windows-latest` for Windows; choosing a self-hosted Windows runner
 is explicit in a manual run.
 
-A Windows job stays queued until an online runner has all four labels:
-`self-hosted`, `windows`, `x64`, `sunshift`.
+A Windows job stays queued until an online runner has all three labels:
+`self-hosted`, `windows`, `x64`.
 
 These jobs compile and test software. They do not launch the GUI, install or
 uninstall the application, or change physical monitor brightness. Those checks
