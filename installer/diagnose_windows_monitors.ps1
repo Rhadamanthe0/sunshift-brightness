@@ -51,6 +51,8 @@ public static class SsbMonitorDiagnostics {
     [DllImport("kernel32.dll", EntryPoint = "DeviceIoControl", SetLastError = true)]
     private static extern bool QueryBrightness(Microsoft.Win32.SafeHandles.SafeFileHandle file, uint code, IntPtr input, uint inputSize, out DisplayBrightness output, uint outputSize, out uint returned, IntPtr overlapped);
     [DllImport("kernel32.dll", EntryPoint = "DeviceIoControl", SetLastError = true)]
+    private static extern bool QuerySupportedBrightness(Microsoft.Win32.SafeHandles.SafeFileHandle file, uint code, IntPtr input, uint inputSize, [Out] byte[] output, uint outputSize, out uint returned, IntPtr overlapped);
+    [DllImport("kernel32.dll", EntryPoint = "DeviceIoControl", SetLastError = true)]
     private static extern bool SetBrightness(Microsoft.Win32.SafeHandles.SafeFileHandle file, uint code, ref DisplayBrightness input, uint inputSize, IntPtr output, uint outputSize, out uint returned, IntPtr overlapped);
     [DllImport("dxva2.dll", SetLastError = true)]
     private static extern bool GetNumberOfPhysicalMonitorsFromHMONITOR(IntPtr monitor, out uint count);
@@ -97,6 +99,23 @@ public static class SsbMonitorDiagnostics {
             }
             DisplayBrightness before, after;
             uint returned;
+            // Production's set() first queries the supported levels. A failed
+            // query must fail validation even if the current value is readable.
+            var supported = new byte[256];
+            if (!QuerySupportedBrightness(file, 2294932, IntPtr.Zero, 0, supported, (uint)supported.Length, out returned, IntPtr.Zero)) {
+                lines.Add(Failure("Internal IOCTL supported brightness query", Marshal.GetLastWin32Error()));
+                return false;
+            }
+            if (returned == 0 || returned > supported.Length) {
+                lines.Add("Internal IOCTL supported brightness response is empty or invalid.");
+                return false;
+            }
+            for (int index = 0; index < returned; index++) {
+                if (supported[index] > 100) {
+                    lines.Add("Internal IOCTL supported brightness level is invalid.");
+                    return false;
+                }
+            }
             uint size = (uint)Marshal.SizeOf(typeof(DisplayBrightness));
             if (!QueryBrightness(file, 2294936, IntPtr.Zero, 0, out before, size, out returned, IntPtr.Zero)) {
                 lines.Add(Failure("Internal IOCTL brightness read", Marshal.GetLastWin32Error()));
