@@ -15,19 +15,20 @@ allowance. A manual run can select `github-hosted` instead.
    Keep the runner and its work directory on a local disk, outside Google Drive.
    Keep the default labels `self-hosted`, `windows`, `x64`.
    The registration token stays on that PC; do not put it in the repository.
-3. The runner account needs Git, Rust Cargo and Clippy, a working Rust linker
-   (MSVC Build Tools or GNU Rust).
-   For GNU Rust, the workflow also checks `C:\Strawberry\c\bin` and
+3. The runner account needs Git. The workflow prepares its own Rust stable GNU
+   toolchain and Clippy under the runner tool cache, using the official Rustup
+   download with its SHA-256 checksum. Existing personal Rust installations and
+   the system PATH are left unchanged. For the GNU linker, it checks `C:\Strawberry\c\bin` and
    `C:\msys64\mingw64\bin` if MinGW is not on PATH.
    If absent, it downloads a pinned portable MinGW build into the runner's
    tool cache, verifies its SHA-256 checksum and adds it to the job's
    PATH. It does not change the system PATH or require administrator rights.
-   Run `cargo clippy --version` and `cargo build --locked` from a checkout to
-   confirm existing build tools work. NSIS can be on PATH or installed in its
+   NSIS can be on PATH or installed in its
    standard `Program Files (x86)\NSIS` directory. Otherwise the installer step
    downloads and verifies a pinned portable NSIS build in the runner's tool
    cache. Completed tool extractions are reused by later jobs. Only the installer
-   compiler runs; the generated installer does not.
+   compiler builds the normal installer; a separate temporary fixture tests
+   installation and uninstallation as described below.
    Cargo build artifacts also stay in the local tool cache, outside the checkout,
    so later jobs reuse them without archiving or uploading them to GitHub.
 4. Start `.\run.cmd` from the runner directory and leave that terminal open.

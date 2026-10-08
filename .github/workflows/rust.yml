@@ -55,20 +55,33 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Check Windows Rust executables
+      - name: Prepare isolated Rust toolchain
+        if: runner.environment == 'self-hosted'
         run: |
-          Write-Output "Runner session: $((Get-Process -Id $PID).SessionId)"
-          foreach ($name in @('rustc.exe', 'cargo.exe', 'rustup.exe')) {
-            $command = Get-Command $name -ErrorAction SilentlyContinue
-            if ($command) {
-              $file = Get-Item -LiteralPath $command.Source
-              Write-Output "$name : $($file.FullName), $($file.Length) bytes"
-              $stream = [IO.File]::OpenRead($file.FullName)
-              try { Write-Output "Executable signature: $($stream.ReadByte()), $($stream.ReadByte())" }
-              finally { $stream.Dispose() }
+          $ProgressPreference = 'SilentlyContinue'
+          $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-rust'
+          $env:CARGO_HOME = Join-Path $directory 'cargo'
+          $env:RUSTUP_HOME = Join-Path $directory 'rustup'
+          $env:RUSTUP_TOOLCHAIN = 'stable-x86_64-pc-windows-gnu'
+          $rustup = Join-Path $env:CARGO_HOME 'bin\rustup.exe'
+          if (-not (Test-Path $rustup)) {
+            $installer = Join-Path $env:RUNNER_TEMP 'ssb-rustup-init.exe'
+            $uri = 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe'
+            Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $installer -TimeoutSec 300
+            $checksum = (Invoke-WebRequest -UseBasicParsing -Uri "$uri.sha256" -TimeoutSec 60).Content.Trim().Split(' ')[0]
+            if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne $checksum) {
+              throw 'Rustup archive checksum mismatch.'
             }
+            $env:RUSTUP_INIT_SKIP_PATH_CHECK = 'yes'
+            & $installer -y --no-modify-path --profile minimal --default-toolchain $env:RUSTUP_TOOLCHAIN
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to install isolated Rust toolchain.' }
           }
-          try { & rustup show } catch { Write-Output "Rustup diagnostic: $($_.Exception.Message)" }
+          & $rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component clippy --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to prepare Rust and Clippy.' }
+          foreach ($name in @('CARGO_HOME', 'RUSTUP_HOME', 'RUSTUP_TOOLCHAIN')) {
+            "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          (Join-Path $env:CARGO_HOME 'bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Prepare Windows build tools
         run: |
