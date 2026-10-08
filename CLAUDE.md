@@ -77,13 +77,13 @@ Spécifique à cet environnement (Drive monté + bac à sable PowerShell) — po
 
 Fork publié en **privé** sur le compte GitHub de l'utilisateur (CPI). Branche de travail `feature/sunrise-sunset-advance`, fusionnée dans la branche par défaut. Le dépôt amont reste `jacob-pro/solar-screen-brightness` (LGPL). L'installeur compilé est attaché en **Release** (binaire hors historique git).
 
-**CI (`.github/workflows/rust.yml`)** : GitHub Actions lance test + clippy + build à **chaque push** (Windows + Ubuntu) — consomme des minutes Actions (quota limité en dépôt privé). Un **tag** poussé (`refs/tags/…`) déclenche en plus la publication d'une Release avec les binaires + installeur. La Release `v2.3.2-custom` a, elle, été créée manuellement via `gh`.
+**CI (`.github/workflows/rust.yml`)** : GitHub Actions lance les contrôles à **chaque push** sur les runners personnels Windows et Linux. Le lancement manuel permet de choisir la plateforme et, facultativement, un runner Windows hébergé par GitHub (soumis au quota et à la facturation). Voir `installer/SELF_HOSTED_CI.md`. Un **tag** poussé (`refs/tags/…`) déclenche en plus la publication d'une Release avec les binaires + installeur. La Release `v2.3.2-custom` a, elle, été créée manuellement via `gh`.
 
 **Trois jobs — pièges à connaître :**
 
 - `check_style` = `cargo fmt -- --check` **+ `cargo-sort --check --workspace`**. cargo-sort exige, dans `Cargo.toml` : (a) les clés triées **dans chaque table** ; (b) les **tables `[target.*]` elles-mêmes** triées par en-tête (`cfg(target_os="linux")` < `cfg(unix)` < `cfg(windows)`) ; (c) une **virgule finale** dans les tableaux multi-lignes (ex. `features`). Le `Cargo.toml` amont violait (a), (b) et (c). Vérifier sans MSVC : compiler cargo-sort avec la toolchain **gnu** (`cargo +stable-x86_64-pc-windows-gnu install cargo-sort`) et le lancer sur une copie **LF** (la CI tourne sous Linux).
 - `ubuntu` = test + clippy (toutes les cibles) + syntaxe du script Linux (ne compile pas le code Windows-only — un échec Windows-only n'y apparaît donc pas).
-- `windows` = test + clippy + build + **installeur**. `makensis` **n'est pas dans le PATH** du runner `windows-latest` : le workflow fait `choco install nsis`, puis appelle makensis **depuis `installer/`**. Les chemins relatifs `..\target\release` / `..\assets` du `.nsi` ne sont corrects que depuis ce dossier, où `ssb-installer.exe` est aussi produit pour l'étape Publish.
+- `windows` = test + clippy + build + **installeur**. Le runner personnel doit disposer de NSIS ; le workflow le cherche dans le PATH puis dans `Program Files (x86)\NSIS`. Sur `windows-latest`, il l’installe avec Chocolatey. Dans les deux cas, makensis tourne **depuis `installer/`**. Les chemins relatifs `..\target\release` / `..\assets` du `.nsi` ne sont corrects que depuis ce dossier, où `ssb-installer.exe` est aussi produit pour l'étape Publish.
 
 ## Validation locale après corrections
 

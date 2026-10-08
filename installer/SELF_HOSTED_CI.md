@@ -3,8 +3,9 @@
 The Linux test and style jobs already use the server runner labelled
 `self-hosted`, `linux`, `x64`, `minipc`, `podman`.
 
-Manual runs can also use a Windows PC. They do not require a GitHub-hosted
-Windows runner or its billing allowance.
+The Windows job uses a Windows PC by default, including on pushes and pull
+requests. It does not require a GitHub-hosted Windows runner or its billing
+allowance. A manual run can select `github-hosted` instead.
 
 ## Register the Windows runner once
 
@@ -16,6 +17,8 @@ Windows runner or its billing allowance.
    The registration token stays on that PC; do not put it in the repository.
 3. The runner account needs Git, Rust Cargo and Clippy, a working Rust linker
    (MSVC Build Tools or the GNU/MinGW setup described in `CLAUDE.md`), and NSIS 3.
+   For GNU Rust, the workflow also checks `C:\Strawberry\c\bin` and
+   `C:\msys64\mingw64\bin` if MinGW is not on PATH.
    Run `cargo clippy --version` and `cargo build --locked` from a checkout to
    confirm the build tools work. NSIS can be on PATH or installed in its standard
    `Program Files (x86)\NSIS` directory.
@@ -44,9 +47,8 @@ gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/202
 
 Use the branch containing the changes you want to validate. Once the workflow
 is on the default branch, **Actions → Rust Build → Run workflow** provides the
-same platform and runner selections in the GitHub UI. Automatic push/PR runs
-still use `windows-latest` for Windows; choosing a self-hosted Windows runner
-is explicit in a manual run.
+same platform and runner selections in the GitHub UI. Keep both machines
+available for automatic push/PR runs.
 
 A Windows job stays queued until an online runner has all three labels:
 `self-hosted`, `windows`, `x64`.

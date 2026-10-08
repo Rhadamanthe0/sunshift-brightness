@@ -34,13 +34,35 @@ jobs:
 
   windows:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_runner == 'self-hosted' && fromJSON('["self-hosted", "windows", "x64"]') || 'windows-latest' }}
+    runs-on: ${{ inputs.windows_runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted", "windows", "x64"]') }}
     defaults:
       run:
         shell: powershell
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prepare Windows build tools
+        run: |
+          $rustInfo = rustc -vV
+          if ($LASTEXITCODE -ne 0) { throw "Rust is not available to the runner account." }
+          $rustInfo
+          if ($rustInfo -match 'host: x86_64-pc-windows-gnu') {
+            if (-not (Get-Command dlltool.exe -ErrorAction SilentlyContinue)) {
+              foreach ($directory in @('C:\Strawberry\c\bin', 'C:\msys64\mingw64\bin')) {
+                if (Test-Path "$directory\dlltool.exe") {
+                  $env:PATH = "$directory;$env:PATH"
+                  $directory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                  break
+                }
+              }
+            }
+            foreach ($tool in @('gcc.exe', 'dlltool.exe', 'windres.exe')) {
+              if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+                throw "GNU Rust needs MinGW on PATH (missing $tool). See installer/SELF_HOSTED_CI.md."
+              }
+            }
+          }
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
