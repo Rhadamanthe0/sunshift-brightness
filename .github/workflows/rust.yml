@@ -1,6 +1,20 @@
 name: Rust Build
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platforms to validate
+        type: choice
+        options: [all, linux, windows]
+        default: all
+      windows_runner:
+        description: Windows runner (self-hosted requires the sunshift label)
+        type: choice
+        options: [self-hosted, github-hosted]
+        default: self-hosted
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,7 +33,11 @@ concurrency:
 jobs:
 
   windows:
-    runs-on: windows-latest
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_runner == 'self-hosted' && fromJSON('["self-hosted", "windows", "x64", "sunshift"]') || 'windows-latest' }}
+    defaults:
+      run:
+        shell: powershell
 
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +55,7 @@ jobs:
         run: cargo build --locked --release
 
       - name: Install NSIS
+        if: runner.environment == 'github-hosted'
         run: choco install nsis -y --no-progress
 
       # makensis doit tourner depuis installer/ : le script utilise des chemins
@@ -44,7 +63,15 @@ jobs:
       # Il y produit aussi ssb-installer.exe, attendu par l'étape Publish.
       - name: Create installer
         working-directory: installer
-        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" windows.nsi'
+        run: |
+          $nsis = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          if ($nsis) {
+            & $nsis.Source windows.nsi
+          } elseif (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe") {
+            & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" windows.nsi
+          } else {
+            throw "Install NSIS 3 on the Windows runner, then retry."
+          }
 
       - if: startsWith(github.ref, 'refs/tags/')
         name: Publish Release Artifacts
@@ -56,6 +83,7 @@ jobs:
             ./installer/ssb-installer.exe
 
   ubuntu:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     # MINIPC-CLEM : libudev-dev, libssl-dev et la chaîne C sont dans l'image du
     # runner. apt-get y est impossible (root sans capacité : setgroups refusé).
     runs-on: [self-hosted, linux, x64, minipc, podman]
@@ -87,6 +115,7 @@ jobs:
         run: bash -n linux/ubuntu_install.sh
 
   check_style:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     runs-on: [self-hosted, linux, x64, minipc, podman]
     steps:
       - uses: actions/checkout@v4

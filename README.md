@@ -95,6 +95,9 @@ Windows event handling or rendering. With `cargo-audit` installed, `cargo audit`
 checks the locked dependencies against RustSec. Informational dependency warnings
 must be reviewed separately from confirmed vulnerabilities.
 
+To validate on your Linux server or Windows PC, see the
+[self-hosted CI instructions](installer/SELF_HOSTED_CI.md).
+
 ### CLI
 
 Configure a location in the GUI first, then run `ssb-cli --once` to apply
