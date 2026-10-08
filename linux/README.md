@@ -2,17 +2,37 @@
 
 ## Installation
 
-For Ubuntu you can use the [installation script](./ubuntu_install.sh):
+Clone this fork (authenticate with GitHub if the repository is private), install
+Rust from <https://rustup.rs>, and run the [installation script](./ubuntu_install.sh)
+from the checkout on Ubuntu:
 
 ```bash
-curl -sSLf https://github.com/jacob-pro/solar-screen-brightness/raw/master/linux/ubuntu_install.sh?raw=true | bash -s install
+git clone https://github.com/Rhadamanthe0/sunshift-brightness.git
+cd sunshift-brightness
+bash linux/ubuntu_install.sh install
 ```
+
+The script builds this checkout with its lockfile and installs both binaries in
+`${CARGO_HOME:-$HOME/.cargo}/bin`. It creates desktop and autostart entries and
+copies the icon locally. It needs sudo to install missing build packages:
+`build-essential`, `pkg-config`, `libssl-dev`, and `libudev-dev`. GTK and libxdo
+are not required by the StatusNotifier tray backend. The desktop session must
+provide a D-Bus session bus and a StatusNotifier-compatible tray.
+
+For a manual build, install these packages and run `cargo build --locked --release`.
+The GUI and CLI are `target/release/ssb` and `target/release/ssb-cli`.
+
+To uninstall, stop the application, then run `bash linux/ubuntu_install.sh uninstall`.
+This removes the binaries, desktop entries, configuration, and application data.
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected when set.
 
 ## External Monitor Support
 
 Internally `solar-screen-brightness` uses the [`brightness` crate](https://github.com/stephaneyfx/brightness).
 
 On Linux, the `brightness` crate interacts with devices found at `/sys/class/backlight`.
+The application watches backlight and DDC/CI device events. It also retries
+within one minute when no devices are found or a device reports an error.
 
 The [ddcci-backlight](https://gitlab.com/ddcci-driver-linux/ddcci-driver-linux) 
 kernel driver is required to expose external monitors as backlight devices (via DDC/CI).

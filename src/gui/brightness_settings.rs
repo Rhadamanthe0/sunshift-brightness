@@ -1,4 +1,4 @@
-use crate::calculator::{calculate_brightness, next_sample_time};
+use crate::calculator::{next_sample_time, SolarSchedule};
 use crate::config::{Location, SsbConfig};
 use crate::controller::Message;
 use crate::gui::app::{save_config, AppState, Page, SPACING};
@@ -7,7 +7,6 @@ use egui::plot::{uniform_grid_spacer, GridInput, GridMark, Line, PlotBounds};
 use egui::widgets::plot::Plot;
 use std::mem::take;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use sunrise_sunset_calculator::SunriseSunsetParameters;
 use validator::Validate;
 
 pub struct BrightnessSettingsPage {
@@ -52,7 +51,9 @@ impl PlotData {
         if config.sunset_offset_mins != self.sunset_offset_mins {
             return true;
         }
-        let age = SystemTime::now().duration_since(self.generated_at).unwrap();
+        let Ok(age) = SystemTime::now().duration_since(self.generated_at) else {
+            return true;
+        };
         if chrono::Duration::from_std(age).unwrap().num_minutes() > 5 {
             return true;
         }
@@ -121,12 +122,15 @@ impl Page for BrightnessSettingsPage {
             }
             if ui.button("Save").clicked() {
                 let mut config = app_state.config.write().unwrap();
-                self.copy_to_config(&mut config);
-                app_state
-                    .controller
-                    .send(Message::Refresh("Brightness change"))
-                    .unwrap();
-                save_config(&mut config, &app_state.transitions);
+                let mut updated = config.clone();
+                self.copy_to_config(&mut updated);
+                if save_config(&updated, &app_state.transitions) {
+                    *config = updated;
+                    app_state
+                        .controller
+                        .send(Message::Refresh("Brightness change"))
+                        .unwrap();
+                }
             };
         });
 
@@ -247,28 +251,26 @@ fn generate_plot_data(
         .unwrap()
         .as_secs() as i64;
 
+    let schedule = SolarSchedule::new(
+        location,
+        graph_start,
+        graph_end,
+        sunrise_offset_mins,
+        sunset_offset_mins,
+    )
+    .expect("Unable to calculate solar preview");
     let mut points = Vec::new();
     let mut current = graph_start;
 
     while current <= graph_end {
-        let sun = SunriseSunsetParameters::new(current, location.latitude, location.longitude)
-            .calculate()
-            .unwrap();
-        let brightness = calculate_brightness(
-            brightness_day,
-            brightness_night,
-            transition_mins,
-            sunrise_offset_mins,
-            sunset_offset_mins,
-            &sun,
-            current,
-        );
-        let next_time = brightness.expiry_time.unwrap_or(graph_end).min(graph_end);
+        let brightness =
+            schedule.calculate(brightness_day, brightness_night, transition_mins, current);
+        let next_time = next_sample_time(current, brightness.expiry_time, graph_end);
 
         // Add some extra points in the "flat" zone to allow cursor to snap to the line
         // This is a bit of a hack, assuming if expiry is greater than 30 minutes,
         // to be completely accurate we would need to look ahead at the next calculation.
-        if brightness.expiry_time.unwrap_or(i64::MAX) - current > 1800 {
+        if next_time - current > 1800 {
             for second in num::range_step(current, next_time, 240) {
                 points.push([second as f64, brightness.brightness as f64]);
             }

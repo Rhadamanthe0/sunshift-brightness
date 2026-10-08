@@ -42,8 +42,12 @@ impl BrightnessController {
 
 impl Drop for BrightnessController {
     fn drop(&mut self) {
-        self.sender.send(Message::Shutdown).unwrap();
-        take(&mut self.join_handle).unwrap().join().unwrap();
+        let _ = self.sender.send(Message::Shutdown);
+        if let Some(handle) = take(&mut self.join_handle) {
+            if handle.join().is_err() {
+                log::error!("Brightness controller thread panicked");
+            }
+        }
         log::debug!("Stopped BrightnessController");
     }
 }
@@ -85,7 +89,8 @@ fn run<F: Fn()>(
                 // attendre 60 s plutôt que 0 évite un busy-loop à 100 % de CPU.
                 let duration = timeout
                     .duration_since(SystemTime::now())
-                    .unwrap_or_else(|_| Duration::from_secs(60));
+                    .unwrap_or_else(|_| Duration::from_secs(60))
+                    .max(Duration::from_secs(1));
                 log::info!(
                     "BrightnessController sleeping for {}s",
                     duration.human_duration()
@@ -113,7 +118,7 @@ fn run<F: Fn()>(
             Err(RecvTimeoutError::Timeout) => {
                 log::debug!("Refreshing due to timeout")
             }
-            Err(RecvTimeoutError::Disconnected) => panic!("Unexpected disconnection"),
+            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
 }
@@ -121,13 +126,23 @@ fn run<F: Fn()>(
 // The time at which the brightness should be re-applied
 fn calculate_timeout(results: &Option<ApplyResults>) -> Option<SystemTime> {
     if let Some(results) = results {
-        results
+        let next_change = results
             .monitors
             .iter()
             .flat_map(|m| m.brightness.as_ref().map(|b| b.expiry_time))
             .flatten()
             .min()
-            .map(|e| UNIX_EPOCH + Duration::from_secs(e as u64))
+            .and_then(|e| u64::try_from(e).ok())
+            .and_then(|e| UNIX_EPOCH.checked_add(Duration::from_secs(e)));
+        if results.monitors.is_empty()
+            || !results.unknown_devices.is_empty()
+            || results.monitors.iter().any(|m| m.error.is_some())
+        {
+            let retry = SystemTime::now() + Duration::from_secs(60);
+            Some(next_change.map_or(retry, |next| next.min(retry)))
+        } else {
+            next_change
+        }
     } else {
         None
     }
@@ -148,5 +163,60 @@ fn apply(config: SsbConfig) -> Option<ApplyResults> {
     } else {
         log::warn!("Skipping apply because no location is configured");
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::apply::{BrightnessDetails, MonitorProperties, MonitorResult, SunriseSunsetResult};
+
+    #[test]
+    fn missing_or_failed_devices_retry_even_with_constant_brightness() {
+        let mut results = ApplyResults {
+            unknown_devices: vec![],
+            monitors: vec![],
+            sun: SunriseSunsetResult {
+                rise: 0,
+                set: 1,
+                visible: true,
+            },
+        };
+        let mut missing_devices = Some(results);
+        assert!(calculate_timeout(&missing_devices).is_some());
+        missing_devices
+            .as_mut()
+            .unwrap()
+            .unknown_devices
+            .push("Enumeration failed".into());
+        assert!(calculate_timeout(&missing_devices).is_some());
+        results = ApplyResults {
+            unknown_devices: vec![],
+            monitors: vec![MonitorResult {
+                properties: MonitorProperties {
+                    device_name: "Test".into(),
+                    #[cfg(windows)]
+                    device_description: "Test".into(),
+                    #[cfg(windows)]
+                    device_key: "Test".into(),
+                    #[cfg(windows)]
+                    device_path: "Test".into(),
+                },
+                brightness: Some(BrightnessDetails {
+                    expiry_time: None,
+                    brightness: 50,
+                    brightness_day: 50,
+                    brightness_night: 50,
+                }),
+                error: Some("Temporarily unavailable".into()),
+            }],
+            sun: SunriseSunsetResult {
+                rise: 0,
+                set: 1,
+                visible: true,
+            },
+        };
+        assert!(calculate_timeout(&Some(results)).is_some());
+        assert!(calculate_timeout(&None).is_none());
     }
 }

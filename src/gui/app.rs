@@ -241,7 +241,7 @@ pub fn set_red_widget_border(ui: &mut egui::Ui) {
     ui.style_mut().visuals.widgets.hovered.bg_stroke.color = egui::Color32::RED;
 }
 
-pub fn save_config(config: &mut SsbConfig, transitions: &Transitions) {
+pub fn save_config(config: &SsbConfig, transitions: &Transitions) -> bool {
     if let Err(e) = config.save() {
         log::error!("Unable to save config: {:#}", e);
         transitions.queue_state_transition(move |app| {
@@ -250,5 +250,7 @@ pub fn save_config(config: &mut SsbConfig, transitions: &Transitions) {
                 message: format!("Unable to save config: {}", e),
             }));
         });
+        return false;
     }
+    true
 }

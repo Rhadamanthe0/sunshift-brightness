@@ -1,4 +1,4 @@
-use crate::calculator::calculate_brightness;
+use crate::calculator::SolarSchedule;
 use crate::config::{BrightnessValues, Location, MonitorOverride, MonitorProperty};
 use brightness::blocking::{Brightness, BrightnessDevice};
 use itertools::Itertools;
@@ -110,6 +110,14 @@ pub fn apply_brightness(
     let sun = SunriseSunsetParameters::new(epoch_time_now, location.latitude, location.longitude)
         .calculate()
         .unwrap();
+    let schedule = SolarSchedule::new(
+        location,
+        epoch_time_now,
+        epoch_time_now,
+        sunrise_offset_mins,
+        sunset_offset_mins,
+    )
+    .expect("Unable to calculate solar schedule");
     log::debug!("Now: {}, Sun: {:?}", epoch_time_now, sun);
 
     let mut failed_monitors = vec![];
@@ -137,13 +145,10 @@ pub fn apply_brightness(
                 brightness_night,
             }) = monitor_values
             {
-                let brightness = calculate_brightness(
+                let brightness = schedule.calculate(
                     brightness_day,
                     brightness_night,
                     transition_mins,
-                    sunrise_offset_mins,
-                    sunset_offset_mins,
-                    &sun,
                     epoch_time_now,
                 );
                 log::debug!(
@@ -226,5 +231,59 @@ impl MonitorProperties {
             map.insert(MonitorProperty::DevicePath, &self.device_path);
         }
         map
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_matching_override_wins_including_disabled_monitors() {
+        let monitor = MonitorProperties {
+            device_name: "Display-1".into(),
+            #[cfg(windows)]
+            device_description: "External".into(),
+            #[cfg(windows)]
+            device_key: "Key".into(),
+            #[cfg(windows)]
+            device_path: "Path".into(),
+        };
+        let overrides = [
+            MonitorOverride {
+                pattern: "Other*".into(),
+                key: MonitorProperty::DeviceName,
+                brightness: None,
+            },
+            MonitorOverride {
+                pattern: "Display*".into(),
+                key: MonitorProperty::DeviceName,
+                brightness: None,
+            },
+            MonitorOverride {
+                pattern: "*".into(),
+                key: MonitorProperty::DeviceName,
+                brightness: Some(BrightnessValues {
+                    brightness_day: 80,
+                    brightness_night: 20,
+                }),
+            },
+        ]
+        .iter()
+        .map(MonitorOverrideCompiled::from)
+        .collect::<Vec<_>>();
+        assert!(match_monitor(&overrides, &monitor)
+            .unwrap()
+            .brightness
+            .is_none());
+        assert_eq!(
+            match_monitor(&overrides[2..], &monitor)
+                .unwrap()
+                .brightness
+                .unwrap()
+                .brightness_day,
+            80
+        );
+        assert!(match_monitor(&overrides[..1], &monitor).is_none());
     }
 }

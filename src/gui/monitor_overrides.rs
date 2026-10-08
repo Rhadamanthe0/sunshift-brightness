@@ -233,12 +233,15 @@ impl MonitorOverridePage {
                 .clicked()
             {
                 let mut config = app_state.config.write().unwrap();
-                self.copy_to_config(&mut config);
-                app_state
-                    .controller
-                    .send(Message::Refresh("Override change"))
-                    .unwrap();
-                save_config(&mut config, &app_state.transitions);
+                let mut updated = config.clone();
+                self.copy_to_config(&mut updated);
+                if save_config(&updated, &app_state.transitions) {
+                    *config = updated;
+                    app_state
+                        .controller
+                        .send(Message::Refresh("Override change"))
+                        .unwrap();
+                }
             }
         });
 

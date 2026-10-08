@@ -10,8 +10,9 @@ Automatically and smoothly adjusts monitor brightness based on the sunrise/sunse
 > morning and evening transitions independently relative to the actual solar event. A positive value
 > starts the transition *earlier* than sunrise/sunset, a negative value *later*. Useful when your room
 > gets light or dark before the sun actually rises or sets (e.g. an east-facing room that brightens
-> early in the morning and dims early in the evening). When both are `0` the behaviour is identical to
-> upstream.
+> early in the morning and dims early in the evening). When both are `0`, transitions remain centred
+> on the actual solar events. If long transitions would overlap, their duration is shortened
+> symmetrically to keep the brightness curve continuous.
 >
 > Sunshift Brightness is an **unofficial fork** of [Solar Screen Brightness](https://github.com/jacob-pro/solar-screen-brightness)
 > by **Jacob Halsey** ([jacob-pro](https://github.com/jacob-pro)), licensed under **LGPL-3.0**. All credit for the
@@ -67,7 +68,9 @@ To uninstall: Start Menu → *Uninstall Custom Solar Screen Brightness*.
 
 ### Build from source
 
-`cargo build --release` produces `ssb.exe` (tray GUI) and `ssb-cli.exe`. The app
+`cargo build --locked --release` produces `ssb` (tray GUI) and `ssb-cli` in
+`target/release` (`ssb.exe` and `ssb-cli.exe` on Windows). For Linux build
+dependencies, see the [Linux guide](linux/README.md). The app
 icon is embedded into the executables at build time: with the **MSVC** toolchain
 via `rc.exe`, and with the **GNU** toolchain via `windres` (the build script picks
 the right one). If no resource compiler is available the build still succeeds —
@@ -81,6 +84,25 @@ makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> i
 ```
 
 CI builds the installer on every push: it runs `choco install nsis`, then invokes `makensis` **from the `installer/` directory**, where the default relative paths (`..\target\release`, `..\assets`) resolve correctly and `ssb-installer.exe` is produced.
+
+### Validation
+
+Install the Rust `rustfmt` and `clippy` components and `cargo-sort`, then run
+`make test` for formatting, manifest ordering, Clippy (including test targets),
+and unit/doc tests. Run `cargo build --locked --release` to check the release build.
+The CI validates Windows and Linux separately; a Linux build does not check
+Windows event handling or rendering. With `cargo-audit` installed, `cargo audit`
+checks the locked dependencies against RustSec. Informational dependency warnings
+must be reviewed separately from confirmed vulnerabilities.
+
+### CLI
+
+Configure a location in the GUI first, then run `ssb-cli --once` to apply
+brightness once and print the solar times, monitor results, and device errors as
+JSON. `ssb-cli` without `--once` runs until Ctrl-C. Use `--config <path>` to load a
+different configuration, or `--debug` for verbose logs. Only one GUI or CLI
+instance can control brightness at a time. A configuration error exits with a
+nonzero status; per-monitor failures are reported in the JSON and log.
 
 ## Original project & licence
 

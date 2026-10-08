@@ -28,13 +28,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cargo Test
-        run: cargo test
+        run: cargo test --locked
 
       - name: Cargo Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Cargo Release Build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Install NSIS
         run: choco install nsis -y --no-progress
@@ -56,13 +56,13 @@ jobs:
             ./installer/ssb-installer.exe
 
   ubuntu:
-    # MINIPC-CLEM : libudev-dev, libxdo-dev et la chaîne C sont dans l'image du
+    # MINIPC-CLEM : libudev-dev, libssl-dev et la chaîne C sont dans l'image du
     # runner. apt-get y est impossible (root sans capacité : setgroups refusé).
     runs-on: [self-hosted, linux, x64, minipc, podman]
 
     steps:
       - name: Check Ubuntu dependencies
-        run: dpkg -s libudev-dev libxdo-dev build-essential pkg-config >/dev/null
+        run: dpkg -s libudev-dev libssl-dev build-essential pkg-config >/dev/null
 
       - uses: actions/checkout@v4
 
@@ -78,10 +78,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cargo Test
-        run: cargo test
+        run: cargo test --locked
 
       - name: Cargo Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Check Linux installer syntax
+        run: bash -n linux/ubuntu_install.sh
 
   check_style:
     runs-on: [self-hosted, linux, x64, minipc, podman]

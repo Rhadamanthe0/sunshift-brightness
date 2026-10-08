@@ -35,8 +35,8 @@ InstallDir "$LocalAppData\solar-screen-brightness"
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
-!define MUI_WELCOMEPAGE_TITLE "${APP_NAME}"
-!define MUI_WELCOMEPAGE_TEXT "Click Uninstall to start the uninstallation."
+!define MUI_UNWELCOMEPAGE_TITLE "${APP_NAME}"
+!define MUI_UNWELCOMEPAGE_TEXT "Click Uninstall to start the uninstallation."
 !insertmacro MUI_UNPAGE_WELCOME
 !insertmacro MUI_UNPAGE_INSTFILES
 
@@ -50,10 +50,9 @@ Section
     Pop $0
     nsExec::ExecToLog 'taskkill /f /im ssb.exe'
     Pop $0
+    nsExec::ExecToLog 'taskkill /f /im ssb-cli.exe'
+    Pop $0
     Sleep 500
-
-    # Nettoyage des donnees heritees v1
-    RMDir /r "$APPDATA\Solar Screen Brightness"
 
     File "${BINDIR}\ssb.exe"
     File "${BINDIR}\ssb-cli.exe"
@@ -69,6 +68,8 @@ SectionEnd
 
 Section "uninstall"
     nsExec::ExecToLog 'taskkill /f /im ssb.exe'
+    Pop $0
+    nsExec::ExecToLog 'taskkill /f /im ssb-cli.exe'
     Pop $0
     Sleep 500
     DeleteRegValue HKCU "${RUN_KEY}" "${RUN_VALUE}"
