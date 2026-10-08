@@ -29,7 +29,7 @@ function Invoke-Installer([string] $Path, [string[]] $Arguments) {
 
 try {
     New-Item -ItemType Directory -Path $install, $binaries | Out-Null
-    $release = Join-Path $PSScriptRoot '..\target\release'
+    $release = Join-Path $env:CARGO_TARGET_DIR 'release'
     Copy-Item (Join-Path $release 'ssb.exe') (Join-Path $binaries $guiName)
     Copy-Item (Join-Path $release 'ssb-cli.exe') (Join-Path $binaries $cliName)
     $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows.nsi'))

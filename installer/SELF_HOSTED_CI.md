@@ -28,10 +28,16 @@ allowance. A manual run can select `github-hosted` instead.
    downloads and verifies a pinned portable NSIS build in the runner's tool
    cache. Completed tool extractions are reused by later jobs. Only the installer
    compiler runs; the generated installer does not.
+   Cargo build artifacts also stay in the local tool cache, outside the checkout,
+   so later jobs reuse them without archiving or uploading them to GitHub.
 4. Start `.\run.cmd` from the runner directory and leave that terminal open.
-   The PC must be awake. Run it in the logged-in user's session rather than as
-   a background Windows service: the Windows job opens a temporary GUI and tray
-   icon to check rendering and window reopening. Vulkan or OpenGL is required.
+   The PC must be awake and a user logged into its desktop. The Windows job
+   opens a temporary GUI and tray icon to check rendering and window reopening.
+   Vulkan or OpenGL is required. If the runner is a service, the GUI helper
+   uses a temporary scheduled task to run the test in the logged-in console
+   user's session. This requires task registration rights; otherwise start the
+   runner directly in that user's session. The temporary task is removed after
+   the test, and no credentials are passed to it.
 
 GitHub's runner configuration requires repository administration rights.
 Registering a runner does not install the brightness application or change
@@ -63,6 +69,7 @@ A Windows job stays queued until an online runner has all three labels:
 The Windows PC job also renders all GUI pages, including the solar preview,
 and closes/reopens its temporary window. It uses an in-memory configuration
 with every monitor disabled and does not load or save your application files.
+Desktop input is discarded during rendering so a click cannot activate Save.
 The GUI test is selected explicitly by the workflow; ordinary `cargo test`
 skips it because it needs a Windows desktop with Vulkan or OpenGL.
 

@@ -86,8 +86,9 @@ makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> i
 CI builds the installer on every push using the Windows PC runner. It finds
 NSIS locally or downloads a verified portable copy, then invokes `makensis`
 **from the `installer/` directory**, where the default relative paths
-(`..\target\release`, `..\assets`) resolve correctly and `ssb-installer.exe`
-is produced. A manual run can select a GitHub-hosted Windows runner, where
+for the icon resolve correctly and `ssb-installer.exe` is produced. CI passes
+the actual Cargo output directory with `/DBINDIR`; on the PC, build artifacts
+stay in the runner's local tool cache. A manual run can select a GitHub-hosted Windows runner, where
 NSIS is installed with Chocolatey.
 
 ### Validation

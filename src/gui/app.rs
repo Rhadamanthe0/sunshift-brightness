@@ -301,10 +301,13 @@ mod native_tests {
         );
         drop(results);
 
+        eprintln!("Creating native event loop");
         let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event()
             .with_any_thread(true)
             .build();
+        eprintln!("Creating native tray");
         let _tray = crate::tray::create(&event_loop);
+        eprintln!("Native tray created; starting window lifecycle");
         let proxy = event_loop.create_proxy();
         let mut framework = WgpuWinitApp::new(proxy.clone(), true, || {
             SsbEguiApp::new(
@@ -327,6 +330,7 @@ mod native_tests {
                     framework.window().is_none(),
                     "Minimised startup opened a window"
                 );
+                eprintln!("Opening window from minimised startup");
                 framework.on_event(
                     target,
                     &Event::UserEvent(UserEvent::OpenWindow("Native GUI test")),
@@ -347,6 +351,9 @@ mod native_tests {
                         egui_wgpu::wgpu::Backend::Vulkan | egui_wgpu::wgpu::Backend::Gl
                     ));
                     running.app.selected_page = pages[rendered];
+                    // Ignore desktop input: a user click must never activate
+                    // Save against the real configuration during this test.
+                    let _ = running.egui_winit.take_egui_input(&running.window);
                     framework.paint();
                     eprintln!("Rendered {} with {backend:?}", pages[rendered].title());
                     rendered += 1;
