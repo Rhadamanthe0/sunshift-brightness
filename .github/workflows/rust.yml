@@ -44,6 +44,7 @@ jobs:
 
       - name: Prepare Windows build tools
         run: |
+          $ProgressPreference = 'SilentlyContinue'
           $rustInfo = rustc -vV
           if ($LASTEXITCODE -ne 0) { throw "Rust is not available to the runner account." }
           $rustInfo
@@ -59,14 +60,24 @@ jobs:
             }
             if (-not (Get-Command gcc.exe -ErrorAction SilentlyContinue) -or
                 -not (Get-Command dlltool.exe -ErrorAction SilentlyContinue)) {
-              $toolDirectory = Join-Path $env:RUNNER_TEMP 'ssb-mingw'
+              $toolDirectory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-mingw-16.2.0posix-14.0.0-ucrt-r2'
               $archive = Join-Path $env:RUNNER_TEMP 'ssb-mingw.zip'
-              $uri = 'https://github.com/brechtsanders/winlibs_mingw/releases/download/16.2.0posix-14.0.0-ucrt-r2/winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r2.zip'
-              Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive
-              if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'd5dbafc4a170e762ca6143151ec918fb9e2c72736fb14cd704abebc6bdd5276a') {
-                throw 'MinGW archive checksum mismatch.'
+              $ready = Join-Path $toolDirectory '.ready'
+              if (-not (Test-Path $ready)) {
+                $uri = 'https://github.com/brechtsanders/winlibs_mingw/releases/download/16.2.0posix-14.0.0-ucrt-r2/winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r2.zip'
+                Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive -TimeoutSec 300
+                if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'd5dbafc4a170e762ca6143151ec918fb9e2c72736fb14cd704abebc6bdd5276a') {
+                  throw 'MinGW archive checksum mismatch.'
+                }
+                if (Test-Path "$env:SystemRoot\System32\tar.exe") {
+                  New-Item -ItemType Directory -Path $toolDirectory -Force | Out-Null
+                  & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $toolDirectory
+                  if ($LASTEXITCODE -ne 0) { throw 'Unable to extract MinGW.' }
+                } else {
+                  Expand-Archive -LiteralPath $archive -DestinationPath $toolDirectory -Force
+                }
+                New-Item -ItemType File -Path $ready | Out-Null
               }
-              Expand-Archive -LiteralPath $archive -DestinationPath $toolDirectory
               $directory = Join-Path $toolDirectory 'mingw64\bin'
               $env:PATH = "$directory;$env:PATH"
               $directory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -100,6 +111,7 @@ jobs:
       - name: Create installer
         working-directory: installer
         run: |
+          $ProgressPreference = 'SilentlyContinue'
           $nsis = Get-Command makensis.exe -ErrorAction SilentlyContinue
           if ($nsis) {
             & $nsis.Source windows.nsi
@@ -107,12 +119,22 @@ jobs:
             & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" windows.nsi
           } else {
             $archive = Join-Path $env:RUNNER_TEMP 'ssb-nsis.zip'
-            $directory = Join-Path $env:RUNNER_TEMP 'ssb-nsis'
-            Invoke-WebRequest -UseBasicParsing -Uri 'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip' -OutFile $archive
-            if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1') {
-              throw 'NSIS archive checksum mismatch.'
+            $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-nsis-3.11'
+            $ready = Join-Path $directory '.ready'
+            if (-not (Test-Path $ready)) {
+              Invoke-WebRequest -UseBasicParsing -Uri 'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip' -OutFile $archive -TimeoutSec 300
+              if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1') {
+                throw 'NSIS archive checksum mismatch.'
+              }
+              if (Test-Path "$env:SystemRoot\System32\tar.exe") {
+                New-Item -ItemType Directory -Path $directory -Force | Out-Null
+                & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $directory
+                if ($LASTEXITCODE -ne 0) { throw 'Unable to extract NSIS.' }
+              } else {
+                Expand-Archive -LiteralPath $archive -DestinationPath $directory -Force
+              }
+              New-Item -ItemType File -Path $ready | Out-Null
             }
-            Expand-Archive -LiteralPath $archive -DestinationPath $directory
             & "$directory\nsis-3.11\makensis.exe" windows.nsi
           }
 

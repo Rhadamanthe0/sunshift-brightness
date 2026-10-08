@@ -20,13 +20,14 @@ allowance. A manual run can select `github-hosted` instead.
    For GNU Rust, the workflow also checks `C:\Strawberry\c\bin` and
    `C:\msys64\mingw64\bin` if MinGW is not on PATH.
    If absent, it downloads a pinned portable MinGW build into the runner's
-   temporary directory, verifies its SHA-256 checksum and adds it to the job's
+   tool cache, verifies its SHA-256 checksum and adds it to the job's
    PATH. It does not change the system PATH or require administrator rights.
    Run `cargo clippy --version` and `cargo build --locked` from a checkout to
    confirm existing build tools work. NSIS can be on PATH or installed in its
    standard `Program Files (x86)\NSIS` directory. Otherwise the installer step
-   downloads and verifies a pinned portable NSIS build in the runner's temporary
-   directory. Only the installer compiler runs; the generated installer does not.
+   downloads and verifies a pinned portable NSIS build in the runner's tool
+   cache. Completed tool extractions are reused by later jobs. Only the installer
+   compiler runs; the generated installer does not.
 4. Start `.\run.cmd` from the runner directory and leave that terminal open.
    The PC must be awake. For later GUI or physical-monitor checks, run the runner
    in the logged-in user's session rather than as a background Windows service.

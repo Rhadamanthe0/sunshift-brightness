@@ -83,7 +83,12 @@ To rebuild the installer from source (requires `makensis`):
 makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> installer\windows.nsi
 ```
 
-CI builds the installer on every push: it runs `choco install nsis`, then invokes `makensis` **from the `installer/` directory**, where the default relative paths (`..\target\release`, `..\assets`) resolve correctly and `ssb-installer.exe` is produced.
+CI builds the installer on every push using the Windows PC runner. It finds
+NSIS locally or downloads a verified portable copy, then invokes `makensis`
+**from the `installer/` directory**, where the default relative paths
+(`..\target\release`, `..\assets`) resolve correctly and `ssb-installer.exe`
+is produced. A manual run can select a GitHub-hosted Windows runner, where
+NSIS is installed with Chocolatey.
 
 ### Validation
 
