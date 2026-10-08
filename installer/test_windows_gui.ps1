@@ -1,9 +1,31 @@
+param([switch] $PrepareOnly)
 $ErrorActionPreference = 'Stop'
 $filter = 'native_windows_gui_lifecycle'
+$executable = $env:SSB_GUI_TEST_EXECUTABLE
+if ($PrepareOnly -or -not $executable) {
+    $artifacts = & cargo test --locked --no-run --lib --message-format=json
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to build the native GUI test executable.' }
+    $executable = $null
+    foreach ($line in $artifacts) {
+        $artifact = $line | ConvertFrom-Json
+        if ($artifact.reason -eq 'compiler-artifact' -and $artifact.executable -and
+            $artifact.profile.test -and $artifact.target.kind -contains 'lib') {
+            $executable = $artifact.executable
+        }
+    }
+}
+if (-not $executable -or -not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+    throw 'Native GUI test executable was not found.'
+}
+if ($PrepareOnly) {
+    "SSB_GUI_TEST_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    return
+}
+
 $session = (Get-Process -Id $PID).SessionId
 Write-Output "GUI test runner session: $session"
 if ($session -ne 0) {
-    & cargo test --locked $filter -- --ignored --nocapture --test-threads=1
+    & $executable $filter --ignored --nocapture --test-threads=1
     if ($LASTEXITCODE -ne 0) { throw 'Native GUI lifecycle failed.' }
     & (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -CheckBrightness:($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1')
     return
@@ -13,18 +35,6 @@ if ($session -ne 0) {
 # logged-in console user, without changing the runner service or user files.
 $user = (Get-CimInstance Win32_ComputerSystem -OperationTimeoutSec 5).UserName
 if (-not $user) { throw 'Log into the Windows desktop before running the GUI test.' }
-$artifacts = & cargo test --locked --no-run --lib --message-format=json
-if ($LASTEXITCODE -ne 0) { throw 'Unable to build the native GUI test executable.' }
-$executable = $null
-foreach ($line in $artifacts) {
-    $artifact = $line | ConvertFrom-Json
-    if ($artifact.reason -eq 'compiler-artifact' -and $artifact.executable -and
-        $artifact.profile.test -and $artifact.target.kind -contains 'lib') {
-        $executable = $artifact.executable
-    }
-}
-if (-not $executable) { throw 'Native GUI test executable was not found.' }
-
 $id = [guid]::NewGuid().ToString('N')
 $task = "SSB-CI-GUI-$id"
 $directory = Join-Path $env:RUNNER_TEMP "ssb-gui-$id"

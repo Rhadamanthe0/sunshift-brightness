@@ -197,6 +197,13 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: '& ./installer/test_windows_installer.ps1'
 
+      # Compilation and Cargo metadata scanning must not consume the GUI's
+      # execution deadline, especially on a busy self-hosted PC.
+      - name: Prepare Windows GUI test executable
+        if: runner.environment == 'self-hosted'
+        timeout-minutes: 10
+        run: '& ./installer/test_windows_gui.ps1 -PrepareOnly'
+
       - name: Windows GUI lifecycle
         if: runner.environment == 'self-hosted'
         timeout-minutes: 3
