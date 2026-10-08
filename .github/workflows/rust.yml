@@ -46,6 +46,9 @@ jobs:
     steps:
       - name: Prepare Windows target directory
         run: |
+          if ('${{ inputs.physical_monitor_check }}' -eq 'true' -and '${{ runner.environment }}' -ne 'self-hosted') {
+            throw 'Physical monitor validation requires the self-hosted Windows PC.'
+          }
           if ('${{ runner.environment }}' -eq 'self-hosted') {
             $target = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-cargo-target'
             $previous = Join-Path $env:GITHUB_WORKSPACE 'target'

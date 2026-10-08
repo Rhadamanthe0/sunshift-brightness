@@ -105,7 +105,7 @@ exit `$result
         throw "Interactive GUI test did not finish (task result $result)."
     }
     if (([IO.File]::ReadAllText($exitFile)).Trim() -ne '0') {
-        throw 'Native GUI lifecycle failed in the interactive desktop.'
+        throw 'Native Windows validation failed in the interactive desktop.'
     }
 } finally {
     if ($registered) {
