@@ -3,9 +3,10 @@
 The Linux test and style jobs already use the server runner labelled
 `self-hosted`, `linux`, `x64`, `minipc`, `podman`.
 
-The Windows job uses a Windows PC by default, including on pushes and pull
-requests. It does not require a GitHub-hosted Windows runner or its billing
-allowance. A manual run can select `github-hosted` instead.
+The Windows job validates pushes and pull requests on an ephemeral
+GitHub-hosted runner, and builds tag releases on the Windows PC below. It does
+not run untrusted pull-request code on the release machine. A manual run can
+still select either runner.
 
 ## Register the Windows runner once
 
@@ -64,8 +65,9 @@ gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/202
 
 Use the branch containing the changes you want to validate. Once the workflow
 is on the default branch, **Actions → Rust Build → Run workflow** provides the
-same platform and runner selections in the GitHub UI. Keep both machines
-available for automatic push/PR runs.
+same platform and runner selections in the GitHub UI. Keep MINIPC-CLEM
+available for automatic push/PR runs (Linux jobs stay self-hosted); the
+Windows PC is needed for tag releases and manual self-hosted runs.
 
 A Windows job stays queued until an online runner has all four labels:
 `self-hosted`, `windows`, `x64`, `sunshift`.
