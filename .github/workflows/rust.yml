@@ -55,6 +55,21 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Check Windows Rust executables
+        run: |
+          Write-Output "Runner session: $((Get-Process -Id $PID).SessionId)"
+          foreach ($name in @('rustc.exe', 'cargo.exe', 'rustup.exe')) {
+            $command = Get-Command $name -ErrorAction SilentlyContinue
+            if ($command) {
+              $file = Get-Item -LiteralPath $command.Source
+              Write-Output "$name : $($file.FullName), $($file.Length) bytes"
+              $stream = [IO.File]::OpenRead($file.FullName)
+              try { Write-Output "Executable signature: $($stream.ReadByte()), $($stream.ReadByte())" }
+              finally { $stream.Dispose() }
+            }
+          }
+          try { & rustup show } catch { Write-Output "Rustup diagnostic: $($_.Exception.Message)" }
+
       - name: Prepare Windows build tools
         run: |
           $ProgressPreference = 'SilentlyContinue'
