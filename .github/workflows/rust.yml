@@ -27,6 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          # Les runners auto-hébergés n'ont pas le profil rustup des runners
+          # GitHub : clippy doit être demandé explicitement.
+          components: clippy
+
       # PC-PRO-CLEM n'a aucun MSYS2 : l'édition de lien release (toolchain
       # GNU) exige dlltool.exe, fourni par les binutils MinGW (paquet gcc).
       # Même pin que meeting-recorder-windows.
