@@ -5,6 +5,7 @@ Write-Output "GUI test runner session: $session"
 if ($session -ne 0) {
     & cargo test --locked $filter -- --ignored --nocapture --test-threads=1
     if ($LASTEXITCODE -ne 0) { throw 'Native GUI lifecycle failed.' }
+    & (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -CheckBrightness:($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1')
     return
 }
 
@@ -72,12 +73,18 @@ try {
     $dllLiteral = $dllPath.Replace("'", "''")
     $diagnosticsLiteral = $diagnostics.Replace("'", "''")
     $diagnosticOutputLiteral = $diagnosticOutput.Replace("'", "''")
+    $checkBrightness = if ($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1') { '-CheckBrightness' } else { '' }
     $command = @"
 `$env:PATH = '$dllLiteral;' + `$env:PATH
 `$process = Start-Process -FilePath '$binaryLiteral' -ArgumentList '$filter', '--ignored', '--nocapture', '--test-threads=1' -NoNewWindow -Wait -PassThru -RedirectStandardOutput '$outputLiteral' -RedirectStandardError '$errorLiteral'
 `$result = `$process.ExitCode
 `$process.Dispose()
-& '$diagnosticsLiteral' *> '$diagnosticOutputLiteral'
+try {
+    & '$diagnosticsLiteral' $checkBrightness *> '$diagnosticOutputLiteral'
+} catch {
+    `$_ | Out-File -FilePath '$diagnosticOutputLiteral' -Encoding Unicode -Append
+    `$result = 1
+}
 [IO.File]::WriteAllText('$temporaryLiteral', [string]`$result)
 [IO.File]::Move('$temporaryLiteral', '$exitLiteral')
 exit `$result

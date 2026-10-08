@@ -57,6 +57,9 @@ gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/202
 
 # Both machines.
 gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=all -f windows_runner=self-hosted
+
+# Also validate DDC on a connected compatible monitor, keeping its current value.
+gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=all -f windows_runner=self-hosted -f physical_monitor_check=true
 ```
 
 Use the branch containing the changes you want to validate. Once the workflow
@@ -82,6 +85,13 @@ Its files and shortcuts are under `RUNNER_TEMP`, and its registry key is under
 Executable names also include the GUID. The fixture never starts the application and
 does not touch your existing installation or its configuration.
 
-These jobs do not change physical monitor brightness or test an actual
-login/lock/unlock session. Those checks need an attached compatible monitor
-and a separate interactive test session.
+The GUI helper also records desktop session IDs and the results of the GDI/DXVA2
+monitor APIs. With `physical_monitor_check=true` on a self-hosted Windows run,
+it reads a monitor's native brightness value, sends that exact value via DDC,
+and reads it back. At least one compatible monitor must pass; an unavailable
+monitor fails the check. Ordinary runs only enumerate monitors and do not send
+brightness commands. Neither mode changes the application configuration.
+
+Real login/lock/unlock and physically disconnecting/reconnecting a monitor need
+a separate interactive test session. The native tests exercise the Win32 message
+handlers and registration, and the installer fixture verifies the autostart command.

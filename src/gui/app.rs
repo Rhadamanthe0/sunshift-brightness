@@ -308,6 +308,8 @@ mod native_tests {
         let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event()
             .with_any_thread(true)
             .build();
+        let _event_watcher =
+            crate::event_watcher::EventWatcher::start(&controller, Some(&event_loop)).unwrap();
         eprintln!("Creating native tray");
         let _tray = crate::tray::create(&event_loop);
         eprintln!("Native tray created; starting window lifecycle");
