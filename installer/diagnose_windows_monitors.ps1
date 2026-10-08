@@ -27,6 +27,10 @@ public static class SsbMonitorDiagnostics {
     private static extern bool SetMonitorBrightness(IntPtr monitor, uint value);
     [DllImport("kernel32.dll")]
     public static extern uint WTSGetActiveConsoleSessionId();
+    private static string Failure(string operation, int code) {
+        return operation + " failed: 0x" + unchecked((uint)code).ToString("X8") +
+            " (" + new System.ComponentModel.Win32Exception(code).Message + ")";
+    }
     public static string[] Read(bool checkBrightness) {
         var lines = new List<string>();
         int logical = 0;
@@ -44,11 +48,14 @@ public static class SsbMonitorDiagnostics {
             lines.Add("Physical monitor handles: success=" + opened + ", error=" + openError);
             if (opened && count > 0) {
                 try {
+                    foreach (var item in physical) {
+                        lines.Add("Physical monitor: " + item.Description);
+                    }
                     if (checkBrightness) {
                         foreach (var item in physical) {
                             uint minimum, current, maximum;
                             if (!GetMonitorBrightness(item.Handle, out minimum, out current, out maximum)) {
-                                lines.Add("DDC brightness read failed: " + Marshal.GetLastWin32Error());
+                                lines.Add(Failure("DDC brightness read", Marshal.GetLastWin32Error()));
                                 continue;
                             }
                             if (minimum > current || current > maximum) {
@@ -56,12 +63,12 @@ public static class SsbMonitorDiagnostics {
                                 continue;
                             }
                             if (!SetMonitorBrightness(item.Handle, current)) {
-                                lines.Add("DDC same-value write failed: " + Marshal.GetLastWin32Error());
+                                lines.Add(Failure("DDC same-value write", Marshal.GetLastWin32Error()));
                                 continue;
                             }
                             uint readback;
                             if (!GetMonitorBrightness(item.Handle, out minimum, out readback, out maximum)) {
-                                lines.Add("DDC brightness readback failed: " + Marshal.GetLastWin32Error());
+                                lines.Add(Failure("DDC brightness readback", Marshal.GetLastWin32Error()));
                                 continue;
                             }
                             if (readback != current) {

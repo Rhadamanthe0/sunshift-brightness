@@ -64,6 +64,12 @@ A pre-built Windows installer (`ssb-installer.exe`, NSIS, no admin rights) is pr
 
 First run: open the settings from the tray icon and set your **Location**, then Day/Night brightness, Transition, and the new **Sunrise/Sunset Advance**. Nothing is adjusted until a location is set.
 
+For external monitors on Windows, enable **DDC/CI** in the monitor's own menu.
+The monitor and connection must support DDC/CI brightness control; detecting a
+physical monitor alone does not confirm this support. If brightness commands
+fail, test a direct HDMI/DisplayPort connection: some docks, adapters and KVMs
+do not pass DDC/CI correctly. The Status page reports the Windows error.
+
 To uninstall: Start Menu → *Uninstall Custom Solar Screen Brightness*.
 
 ### Build from source

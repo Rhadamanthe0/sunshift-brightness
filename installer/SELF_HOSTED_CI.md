@@ -92,6 +92,12 @@ and reads it back. At least one compatible monitor must pass; an unavailable
 monitor fails the check. Ordinary runs only enumerate monitors and do not send
 brightness commands. Neither mode changes the application configuration.
 
+If this check fails, inspect the physical monitor description and Windows error
+in the job log. Enable DDC/CI in the monitor menu and check the connection;
+detecting a physical monitor does not establish DDC/CI support. A failure such as
+`0xC0262589` means Windows received an invalid DDC/CI response command. Test a
+direct HDMI/DisplayPort connection if a dock, adapter or KVM is involved.
+
 Real login/lock/unlock and physically disconnecting/reconnecting a monitor need
 a separate interactive test session. The native tests exercise the Win32 message
 handlers and registration, and the installer fixture verifies the autostart command.
