@@ -32,6 +32,8 @@ $errorOutput = Join-Path $directory 'stderr.txt'
 $exitFile = Join-Path $directory 'exit.txt'
 $exitTemporary = Join-Path $directory 'exit.tmp'
 $binary = Join-Path $directory 'gui-test.exe'
+$diagnostics = Join-Path $directory 'diagnose.ps1'
+$diagnosticOutput = Join-Path $directory 'diagnostics.txt'
 $registered = $false
 try {
     New-Item -ItemType Directory -Path $directory | Out-Null
@@ -57,6 +59,7 @@ try {
     }
     Set-Acl -LiteralPath $directory -AclObject $acl
     Copy-Item -LiteralPath $executable -Destination $binary
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -Destination $diagnostics
     $gcc = Get-Command gcc.exe -ErrorAction SilentlyContinue
     $dllPath = if ($gcc) { Split-Path $gcc.Source } else { '' }
     # Values are local paths, quoted as PowerShell literals. No credentials or
@@ -67,11 +70,14 @@ try {
     $exitLiteral = $exitFile.Replace("'", "''")
     $temporaryLiteral = $exitTemporary.Replace("'", "''")
     $dllLiteral = $dllPath.Replace("'", "''")
+    $diagnosticsLiteral = $diagnostics.Replace("'", "''")
+    $diagnosticOutputLiteral = $diagnosticOutput.Replace("'", "''")
     $command = @"
 `$env:PATH = '$dllLiteral;' + `$env:PATH
 `$process = Start-Process -FilePath '$binaryLiteral' -ArgumentList '$filter', '--ignored', '--nocapture', '--test-threads=1' -NoNewWindow -Wait -PassThru -RedirectStandardOutput '$outputLiteral' -RedirectStandardError '$errorLiteral'
 `$result = `$process.ExitCode
 `$process.Dispose()
+& '$diagnosticsLiteral' *> '$diagnosticOutputLiteral'
 [IO.File]::WriteAllText('$temporaryLiteral', [string]`$result)
 [IO.File]::Move('$temporaryLiteral', '$exitLiteral')
 exit `$result
@@ -101,4 +107,5 @@ exit `$result
     }
     if (Test-Path $output) { Get-Content -LiteralPath $output -Encoding UTF8 }
     if (Test-Path $errorOutput) { Get-Content -LiteralPath $errorOutput -Encoding UTF8 }
+    if (Test-Path $diagnosticOutput) { Get-Content -LiteralPath $diagnosticOutput -Encoding Unicode }
 }
