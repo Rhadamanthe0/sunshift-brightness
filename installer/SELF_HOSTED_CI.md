@@ -58,7 +58,7 @@ gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/202
 # Both machines.
 gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=all -f windows_runner=self-hosted
 
-# Also validate DDC on a connected compatible monitor, keeping its current value.
+# Also validate a connected monitor's native brightness control, keeping its current values.
 gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=all -f windows_runner=self-hosted -f physical_monitor_check=true
 ```
 
@@ -87,16 +87,20 @@ does not touch your existing installation or its configuration.
 
 The GUI helper also records desktop session IDs and the results of the GDI/DXVA2
 monitor APIs. With `physical_monitor_check=true` on a self-hosted Windows run,
-it reads a monitor's native brightness value, sends that exact value via DDC,
-and reads it back. At least one compatible monitor must pass; an unavailable
-monitor fails the check. Ordinary runs only enumerate monitors and do not send
-brightness commands. Neither mode changes the application configuration.
+it reads a monitor's native brightness values, sends those exact values and
+reads them back. Internal Windows displays use the same IOCTL interface as the
+application; both AC/battery values and the current policy are preserved.
+External displays use DDC/CI. At least one compatible monitor must pass; an
+unavailable monitor fails the check. Ordinary runs only enumerate monitors and
+do not send brightness commands. Neither mode changes the application configuration.
 
 If this check fails, inspect the physical monitor description and Windows error
-in the job log. Enable DDC/CI in the monitor menu and check the connection;
+in the job log. For an external display, enable DDC/CI in the monitor menu and check the connection;
 detecting a physical monitor does not establish DDC/CI support. A failure such as
 `0xC0262589` means Windows received an invalid DDC/CI response command. Test a
 direct HDMI/DisplayPort connection if a dock, adapter or KVM is involved.
+An internal laptop panel does not require a DDC/CI menu setting. The diagnostic
+reports its connection type and the result of the application's IOCTL interface.
 
 Real login/lock/unlock and physically disconnecting/reconnecting a monitor need
 a separate interactive test session. The native tests exercise the Win32 message

@@ -16,7 +16,7 @@ on:
         options: [self-hosted, github-hosted]
         default: self-hosted
       physical_monitor_check:
-        description: Check DDC by writing and reading back the current brightness
+        description: Check native monitor brightness by writing and reading back its current values
         type: boolean
         default: false
 
