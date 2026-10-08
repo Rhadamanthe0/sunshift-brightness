@@ -68,8 +68,10 @@ jobs:
             $installer = Join-Path $env:RUNNER_TEMP 'ssb-rustup-init.exe'
             $uri = 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe'
             Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $installer -TimeoutSec 300
-            $checksum = (Invoke-WebRequest -UseBasicParsing -Uri "$uri.sha256" -TimeoutSec 60).Content.Trim().Split(' ')[0]
-            if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne $checksum) {
+            Invoke-WebRequest -UseBasicParsing -Uri "$uri.sha256" -OutFile "$installer.sha256" -TimeoutSec 60
+            $checksum = [IO.File]::ReadAllText("$installer.sha256").Trim().Split(' ')[0]
+            if ($checksum -notmatch '^[a-fA-F0-9]{64}$' -or
+                (Get-FileHash $installer -Algorithm SHA256).Hash -ne $checksum) {
               throw 'Rustup archive checksum mismatch.'
             }
             $env:RUSTUP_INIT_SKIP_PATH_CHECK = 'yes'
