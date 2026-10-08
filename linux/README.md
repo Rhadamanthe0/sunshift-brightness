@@ -66,7 +66,7 @@ Then reload the driver in debug mode:
 ```
 cd ddcci-driver-linux
 sudo make unload
-modprobe ddcci-backlight dyndbg
+sudo modprobe ddcci-backlight dyndbg
 ```
 
 ### Backlight Permissions
@@ -85,7 +85,7 @@ RUN+="/bin/bash -c '/bin/chgrp video /sys/class/backlight/*/brightness'"
 RUN+="/bin/bash -c '/bin/chmod g+w /sys/class/backlight/*/brightness'"
 ```
 
-`usermod -a -G video $USER` (requires logging out to take effect)
+`sudo usermod -a -G video "$USER"` (requires logging out to take effect)
 
 ### Known Issues
 
