@@ -28,6 +28,7 @@ $id = [guid]::NewGuid().ToString('N')
 $task = "SSB-CI-GUI-$id"
 $directory = Join-Path $env:RUNNER_TEMP "ssb-gui-$id"
 $output = Join-Path $directory 'output.txt'
+$errorOutput = Join-Path $directory 'stderr.txt'
 $exitFile = Join-Path $directory 'exit.txt'
 $exitTemporary = Join-Path $directory 'exit.tmp'
 $binary = Join-Path $directory 'gui-test.exe'
@@ -62,13 +63,15 @@ try {
     # GitHub environment are passed to the interactive process.
     $binaryLiteral = $binary.Replace("'", "''")
     $outputLiteral = $output.Replace("'", "''")
+    $errorLiteral = $errorOutput.Replace("'", "''")
     $exitLiteral = $exitFile.Replace("'", "''")
     $temporaryLiteral = $exitTemporary.Replace("'", "''")
     $dllLiteral = $dllPath.Replace("'", "''")
     $command = @"
 `$env:PATH = '$dllLiteral;' + `$env:PATH
-& '$binaryLiteral' '$filter' --ignored --nocapture --test-threads=1 *> '$outputLiteral'
-`$result = `$LASTEXITCODE
+`$process = Start-Process -FilePath '$binaryLiteral' -ArgumentList '$filter', '--ignored', '--nocapture', '--test-threads=1' -NoNewWindow -Wait -PassThru -RedirectStandardOutput '$outputLiteral' -RedirectStandardError '$errorLiteral'
+`$result = `$process.ExitCode
+`$process.Dispose()
 [IO.File]::WriteAllText('$temporaryLiteral', [string]`$result)
 [IO.File]::Move('$temporaryLiteral', '$exitLiteral')
 exit `$result
@@ -96,5 +99,6 @@ exit `$result
         Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $task -Confirm:$false
     }
-    if (Test-Path $output) { Get-Content -LiteralPath $output -Encoding Unicode }
+    if (Test-Path $output) { Get-Content -LiteralPath $output -Encoding UTF8 }
+    if (Test-Path $errorOutput) { Get-Content -LiteralPath $errorOutput -Encoding UTF8 }
 }

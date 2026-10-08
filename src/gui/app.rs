@@ -299,6 +299,9 @@ mod native_tests {
             result.monitors.len(),
             result.unknown_devices.len()
         );
+        for error in &result.unknown_devices {
+            eprintln!("Native enumeration error: {error}");
+        }
         drop(results);
 
         eprintln!("Creating native event loop");
