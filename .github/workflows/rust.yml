@@ -38,7 +38,7 @@ jobs:
 
   windows:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
-    runs-on: ${{ inputs.windows_runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted", "windows", "x64"]') }}
+    runs-on: ${{ inputs.windows_runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted", "windows", "x64", "sunshift"]') }}
     defaults:
       run:
         shell: powershell

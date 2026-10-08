@@ -13,7 +13,7 @@ allowance. A manual run can select `github-hosted` instead.
    choose **New self-hosted runner**, then **Windows / x64**.
 2. Follow GitHub's download and configuration commands on the Windows PC.
    Keep the runner and its work directory on a local disk, outside Google Drive.
-   Keep the default labels `self-hosted`, `windows`, `x64`.
+   Keep the default labels `self-hosted`, `windows`, `x64` and add `sunshift`.
    The registration token stays on that PC; do not put it in the repository.
 3. The runner account needs Git. The workflow prepares its own Rust stable GNU
    toolchain and Clippy under the runner tool cache, using the official Rustup
@@ -67,8 +67,8 @@ is on the default branch, **Actions → Rust Build → Run workflow** provides t
 same platform and runner selections in the GitHub UI. Keep both machines
 available for automatic push/PR runs.
 
-A Windows job stays queued until an online runner has all three labels:
-`self-hosted`, `windows`, `x64`.
+A Windows job stays queued until an online runner has all four labels:
+`self-hosted`, `windows`, `x64`, `sunshift`.
 
 The Windows PC job also renders all GUI pages, including the solar preview,
 and closes/reopens its temporary window. It uses an in-memory configuration
