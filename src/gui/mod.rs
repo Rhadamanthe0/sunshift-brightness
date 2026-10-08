@@ -199,12 +199,19 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
             let full_output = std::mem::take(&mut running.pending_full_output);
 
             let egui::FullOutput {
-                platform_output,
+                mut platform_output,
                 repaint_after,
                 textures_delta,
                 shapes,
             } = full_output;
 
+            // Use the maintained URL launcher; egui-winit 0.22's optional
+            // launcher depends on a version with unsafe BROWSER tokenization.
+            if let Some(open_url) = platform_output.open_url.take() {
+                if let Err(e) = webbrowser::open(&open_url.url) {
+                    log::error!("Unable to open link: {e}");
+                }
+            }
             running.egui_winit.handle_platform_output(
                 &running.window,
                 &running.egui_ctx,
@@ -295,9 +302,11 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
                             }
                         }
                         WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                            running
-                                .painter
-                                .on_window_resized(new_inner_size.width, new_inner_size.height);
+                            if new_inner_size.width > 0 && new_inner_size.height > 0 {
+                                running
+                                    .painter
+                                    .on_window_resized(new_inner_size.width, new_inner_size.height);
+                            }
                         }
                         WindowEvent::CloseRequested => {
                             return self.close_window();

@@ -92,18 +92,24 @@ impl Page for LocationSettingsPage {
 
         ui.add_space(SPACING);
 
-        let save_enabled = latitude_valid && longitude_valid;
+        // Text edits may change the coordinates during this frame. Validate
+        // the current values again before enabling Save, not the values from
+        // before the fields handled input.
+        let save_enabled = self.is_latitude_valid() && self.is_longitude_valid();
         if ui
             .add_enabled(save_enabled, egui::Button::new("Save"))
             .clicked()
         {
             let mut config = app_state.config.write().unwrap();
-            self.copy_to_config(&mut config);
-            app_state
-                .controller
-                .send(Message::Refresh("Location change"))
-                .unwrap();
-            save_config(&mut config, &app_state.transitions);
+            let mut updated = config.clone();
+            self.copy_to_config(&mut updated);
+            if save_config(&updated, &app_state.transitions) {
+                *config = updated;
+                app_state
+                    .controller
+                    .send(Message::Refresh("Location change"))
+                    .unwrap();
+            }
         }
     }
 }
@@ -138,7 +144,14 @@ fn parse_first_result(json: &str) -> anyhow::Result<Option<(f64, f64)>> {
     results
         .into_iter()
         .next()
-        .map(|r| Ok::<_, anyhow::Error>((r.lat.parse::<f64>()?, r.lon.parse::<f64>()?)))
+        .map(|r| {
+            let location = Location {
+                latitude: r.lat.parse()?,
+                longitude: r.lon.parse()?,
+            };
+            location.validate()?;
+            Ok::<_, anyhow::Error>((location.latitude, location.longitude))
+        })
         .transpose()
 }
 
@@ -146,11 +159,13 @@ fn parse_first_result(json: &str) -> anyhow::Result<Option<(f64, f64)>> {
 /// Politique d'usage Nominatim : User-Agent identifiant avec contact projet.
 fn forward_search(query: &str) -> anyhow::Result<Option<(f64, f64)>> {
     let user_agent = format!(
-        "{}/{} (https://github.com/jacob-pro/solar-screen-brightness)",
+        "{}/{} (https://github.com/Rhadamanthe0/sunshift-brightness)",
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
     );
-    let body = reqwest::blocking::Client::new()
+    let body = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?
         .get("https://nominatim.openstreetmap.org/search")
         .query(&[("q", query), ("format", "jsonv2"), ("limit", "1")])
         .header(reqwest::header::USER_AGENT, user_agent)
@@ -190,19 +205,24 @@ fn on_search(app_state: &mut AppState, search_string: String) {
             }
             Err(e) => {
                 log::error!("Error searching for location: {:?}", e);
+                let message = match e.downcast_ref::<reqwest::Error>() {
+                    Some(error) if error.is_timeout() => "Location search timed out. Try again.",
+                    Some(error) if error.is_connect() => {
+                        "Unable to reach the location service. Check your connection and try again."
+                    }
+                    _ => "Location search failed. Try again later.",
+                };
                 transitions.queue_state_transition(move |app| {
                     app.modal = Some(Box::new(MessageModal {
                         title: "Error".to_string(),
-                        message: format!("Error occurred searching for location: {}", e),
+                        message: message.to_string(),
                     }))
                 });
             }
         }
 
         // Refresh the UI
-        proxy
-            .send_event(UserEvent::RepaintNow("Location Search Completed"))
-            .unwrap();
+        let _ = proxy.send_event(UserEvent::RepaintNow("Location Search Completed"));
     });
 }
 
@@ -222,5 +242,16 @@ mod tests {
     #[test]
     fn empty_nominatim_response_is_no_result() {
         assert!(parse_first_result("[]").unwrap().is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_remote_coordinates() {
+        for json in [
+            r#"[{"lat":"NaN","lon":"2"}]"#,
+            r#"[{"lat":"91","lon":"2"}]"#,
+            r#"[{"lat":"48","lon":"181"}]"#,
+        ] {
+            assert!(parse_first_result(json).is_err());
+        }
     }
 }

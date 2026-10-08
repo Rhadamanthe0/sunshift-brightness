@@ -59,11 +59,10 @@ fn create_internal(event_loop: EventLoopProxy<UserEvent>) -> TrayIcon {
                 ..
             }
         ) {
-            tray_loop
+            let _ = tray_loop
                 .lock()
                 .unwrap()
-                .send_event(UserEvent::OpenWindow("Tray Button"))
-                .unwrap();
+                .send_event(UserEvent::OpenWindow("Tray Button"));
         }
     }));
 
@@ -73,7 +72,7 @@ fn create_internal(event_loop: EventLoopProxy<UserEvent>) -> TrayIcon {
             MENU_ID_EXIT => UserEvent::Exit("Tray Button"),
             _ => return,
         };
-        menu_loop.lock().unwrap().send_event(action).unwrap();
+        let _ = menu_loop.lock().unwrap().send_event(action);
     }));
 
     tray_icon

@@ -42,7 +42,9 @@ fn main() {
         }
         Err(unique::Error::AlreadyRunning(i)) => {
             eprintln!("{} is already running, attempting to wakeup", APP_NAME);
-            i.wakeup();
+            if let Err(e) = i.wakeup() {
+                eprintln!("Unable to open the existing instance: {e:#}");
+            }
             std::process::exit(1);
         }
     };
@@ -68,15 +70,17 @@ fn main() {
 
     let controller_proxy = event_loop.create_proxy();
     let controller = BrightnessController::start(config.clone(), move || {
-        controller_proxy
-            .send_event(UserEvent::RepaintNow("Brightness Controller Update"))
-            .unwrap();
+        let _ = controller_proxy.send_event(UserEvent::RepaintNow("Brightness Controller Update"));
     });
 
     let ctrlc_proxy = event_loop.create_proxy();
-    ctrlc::set_handler(move || ctrlc_proxy.send_event(UserEvent::Exit("ctrl-c")).unwrap()).unwrap();
+    ctrlc::set_handler(move || {
+        let _ = ctrlc_proxy.send_event(UserEvent::Exit("ctrl-c"));
+    })
+    .unwrap();
 
-    let _event_watcher = EventWatcher::start(&controller, Some(&event_loop));
+    let _event_watcher =
+        EventWatcher::start(&controller, Some(&event_loop)).expect("Unable to start event watcher");
     let _tray = tray::create(&event_loop);
 
     let app_proxy = event_loop.create_proxy();
@@ -162,7 +166,9 @@ fn handle_invalid_args(err: clap::Error) -> ! {
 /// redémarrage suivant. Tolérant : un échec d'écriture n'aggrave pas le crash.
 fn record_crash(info: &dyn std::fmt::Display) {
     use std::io::Write;
-    let path = solar_screen_brightness::common::get_crash_log_path();
+    let Ok(path) = solar_screen_brightness::common::get_crash_log_path() else {
+        return;
+    };
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)

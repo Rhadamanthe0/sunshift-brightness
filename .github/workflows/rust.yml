@@ -1,6 +1,24 @@
 name: Rust Build
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platforms to validate
+        type: choice
+        options: [all, linux, windows]
+        default: all
+      windows_runner:
+        description: Windows runner
+        type: choice
+        options: [self-hosted, github-hosted]
+        default: self-hosted
+      physical_monitor_check:
+        description: Check native monitor brightness by writing and reading back its current values
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,62 +37,126 @@ concurrency:
 jobs:
 
   windows:
-    # PC-PRO-CLEM : runner Windows auto-hébergé du dépôt (label sunshift).
-    # Le PC fixe n'a pas encore son runner : en attendant, PC-PRO prend tout
-    # (le premier allumé prend le job une fois les deux en ligne).
-    runs-on: [self-hosted, windows, x64, sunshift]
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
+    runs-on: ${{ inputs.windows_runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted", "windows", "x64", "sunshift"]') }}
+    defaults:
+      run:
+        shell: powershell
 
     steps:
+      - name: Prepare Windows target directory
+        run: |
+          if ('${{ inputs.physical_monitor_check }}' -eq 'true' -and '${{ runner.environment }}' -ne 'self-hosted') {
+            throw 'Physical monitor validation requires the self-hosted Windows PC.'
+          }
+          if ('${{ runner.environment }}' -eq 'self-hosted') {
+            $target = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-cargo-target'
+            $previous = Join-Path $env:GITHUB_WORKSPACE 'target'
+            if (-not (Test-Path $target) -and (Test-Path $previous)) {
+              Move-Item -LiteralPath $previous -Destination $target
+            }
+          } else {
+            $target = Join-Path $env:GITHUB_WORKSPACE 'target'
+          }
+          "CARGO_TARGET_DIR=$($target.Replace('\', '/'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          # Les runners auto-hébergés n'ont pas le profil rustup des runners
-          # GitHub : clippy doit être demandé explicitement.
-          components: clippy
-
-      # PC-PRO-CLEM n'a aucun MSYS2 : l'édition de lien release (toolchain
-      # GNU) exige dlltool.exe, fourni par les binutils MinGW (paquet gcc).
-      # Même pin que meeting-recorder-windows.
-      - name: Install MinGW (MSYS2 UCRT64)
-        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
-        with:
-          msystem: UCRT64
-          update: true
-          install: mingw-w64-ucrt-x86_64-gcc
-
-      # setup-msys2 ne met pas ucrt64/bin au PATH des steps suivants :
-      # on l'expose via GITHUB_PATH pour que l'édition de lien trouve dlltool.
-      - name: Expose MinGW au PATH
+      - name: Prepare isolated Rust toolchain
+        if: runner.environment == 'self-hosted'
         run: |
-          $bindir = $null
-          foreach ($cand in @((Join-Path $env:RUNNER_TEMP 'setup-msys2/ucrt64/bin/dlltool.exe'), 'D:\msys64\ucrt64\bin\dlltool.exe', 'C:\msys64\ucrt64\bin\dlltool.exe')) {
-            if ($cand -and (Test-Path -LiteralPath $cand)) { $bindir = Split-Path $cand -Parent; break }
+          $ProgressPreference = 'SilentlyContinue'
+          $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-rust'
+          $env:CARGO_HOME = Join-Path $directory 'cargo'
+          $env:RUSTUP_HOME = Join-Path $directory 'rustup'
+          $env:RUSTUP_TOOLCHAIN = 'stable-x86_64-pc-windows-gnu'
+          $rustup = Join-Path $env:CARGO_HOME 'bin\rustup.exe'
+          if (-not (Test-Path $rustup)) {
+            $temporary = Join-Path $env:RUNNER_TEMP 'ssb-rustup'
+            New-Item -ItemType Directory -Path $temporary -Force | Out-Null
+            # Rustup selects installer/proxy mode from its executable name.
+            $installer = Join-Path $temporary 'rustup-init.exe'
+            $uri = 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe'
+            Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $installer -TimeoutSec 300
+            Invoke-WebRequest -UseBasicParsing -Uri "$uri.sha256" -OutFile "$installer.sha256" -TimeoutSec 60
+            $checksum = [IO.File]::ReadAllText("$installer.sha256").Trim().Split(' ')[0]
+            if ($checksum -notmatch '^[a-fA-F0-9]{64}$' -or
+                (Get-FileHash $installer -Algorithm SHA256).Hash -ne $checksum) {
+              throw 'Rustup archive checksum mismatch.'
+            }
+            $env:RUSTUP_INIT_SKIP_PATH_CHECK = 'yes'
+            & $installer -y --no-modify-path --profile minimal --default-toolchain $env:RUSTUP_TOOLCHAIN
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to install isolated Rust toolchain.' }
           }
-          if (-not $bindir) {
-            $found = Get-ChildItem -Path $env:RUNNER_TEMP -Filter 'dlltool.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) { $bindir = $found.DirectoryName }
+          & $rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component clippy --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to prepare Rust and Clippy.' }
+          foreach ($name in @('CARGO_HOME', 'RUSTUP_HOME', 'RUSTUP_TOOLCHAIN')) {
+            "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           }
-          if (-not $bindir) { throw 'dlltool.exe introuvable après Install MinGW (MSYS2 UCRT64)' }
-          $bindir >> $env:GITHUB_PATH
-          $env:PATH = "$bindir;$env:PATH"
-          & (Join-Path $bindir 'dlltool.exe') --version | Select-Object -First 2
+          (Join-Path $env:CARGO_HOME 'bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Prepare Windows build tools
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $rustInfo = rustc -vV
+          if ($LASTEXITCODE -ne 0) { throw "Rust is not available to the runner account." }
+          $rustInfo
+          if ($rustInfo -match 'host: x86_64-pc-windows-gnu') {
+            if (-not (Get-Command dlltool.exe -ErrorAction SilentlyContinue)) {
+              foreach ($directory in @('C:\Strawberry\c\bin', 'C:\msys64\mingw64\bin')) {
+                if (Test-Path "$directory\dlltool.exe") {
+                  $env:PATH = "$directory;$env:PATH"
+                  $directory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                  break
+                }
+              }
+            }
+            if (-not (Get-Command gcc.exe -ErrorAction SilentlyContinue) -or
+                -not (Get-Command dlltool.exe -ErrorAction SilentlyContinue)) {
+              $toolDirectory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-mingw-16.2.0posix-14.0.0-ucrt-r2'
+              $archive = Join-Path $env:RUNNER_TEMP 'ssb-mingw.zip'
+              $ready = Join-Path $toolDirectory '.ready'
+              if (-not (Test-Path $ready)) {
+                $uri = 'https://github.com/brechtsanders/winlibs_mingw/releases/download/16.2.0posix-14.0.0-ucrt-r2/winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r2.zip'
+                Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive -TimeoutSec 300
+                if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'd5dbafc4a170e762ca6143151ec918fb9e2c72736fb14cd704abebc6bdd5276a') {
+                  throw 'MinGW archive checksum mismatch.'
+                }
+                if (Test-Path "$env:SystemRoot\System32\tar.exe") {
+                  New-Item -ItemType Directory -Path $toolDirectory -Force | Out-Null
+                  & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $toolDirectory
+                  if ($LASTEXITCODE -ne 0) { throw 'Unable to extract MinGW.' }
+                } else {
+                  Expand-Archive -LiteralPath $archive -DestinationPath $toolDirectory -Force
+                }
+                New-Item -ItemType File -Path $ready | Out-Null
+              }
+              $directory = Join-Path $toolDirectory 'mingw64\bin'
+              $env:PATH = "$directory;$env:PATH"
+              $directory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            }
+            foreach ($tool in @('gcc.exe', 'dlltool.exe', 'windres.exe')) {
+              if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+                throw "GNU Rust needs MinGW on PATH (missing $tool). See installer/SELF_HOSTED_CI.md."
+              }
+            }
+          }
 
       - name: Cache cargo
+        if: runner.environment == 'github-hosted'
         uses: Swatinem/rust-cache@v2
 
       - name: Cargo Test
-        run: cargo test
+        run: cargo test --locked
 
       - name: Cargo Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Cargo Release Build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Install NSIS
+        if: runner.environment == 'github-hosted'
         run: choco install nsis -y --no-progress
 
       # makensis doit tourner depuis installer/ : le script utilise des chemins
@@ -82,25 +164,71 @@ jobs:
       # Il y produit aussi ssb-installer.exe, attendu par l'étape Publish.
       - name: Create installer
         working-directory: installer
-        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" windows.nsi'
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $binaries = Join-Path $env:CARGO_TARGET_DIR 'release'
+          $nsis = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          if ($nsis) {
+            & $nsis.Source "/DBINDIR=$binaries" windows.nsi
+          } elseif (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe") {
+            & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DBINDIR=$binaries" windows.nsi
+          } else {
+            $archive = Join-Path $env:RUNNER_TEMP 'ssb-nsis.zip'
+            $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-nsis-3.11'
+            $ready = Join-Path $directory '.ready'
+            if (-not (Test-Path $ready)) {
+              Invoke-WebRequest -UseBasicParsing -Uri 'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip' -OutFile $archive -TimeoutSec 300
+              if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1') {
+                throw 'NSIS archive checksum mismatch.'
+              }
+              if (Test-Path "$env:SystemRoot\System32\tar.exe") {
+                New-Item -ItemType Directory -Path $directory -Force | Out-Null
+                & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $directory
+                if ($LASTEXITCODE -ne 0) { throw 'Unable to extract NSIS.' }
+              } else {
+                Expand-Archive -LiteralPath $archive -DestinationPath $directory -Force
+              }
+              New-Item -ItemType File -Path $ready | Out-Null
+            }
+            & "$directory\nsis-3.11\makensis.exe" "/DBINDIR=$binaries" windows.nsi
+          }
+
+      - name: Windows installer lifecycle
+        if: runner.environment == 'self-hosted'
+        run: '& ./installer/test_windows_installer.ps1'
+
+      # Compilation and Cargo metadata scanning must not consume the GUI's
+      # execution deadline, especially on a busy self-hosted PC.
+      - name: Prepare Windows GUI test executable
+        if: runner.environment == 'self-hosted'
+        timeout-minutes: 10
+        run: '& ./installer/test_windows_gui.ps1 -PrepareOnly'
+
+      - name: Windows GUI lifecycle
+        if: runner.environment == 'self-hosted'
+        timeout-minutes: 3
+        env:
+          SSB_TEST_MONITOR_ROUNDTRIP: ${{ inputs.physical_monitor_check && '1' || '0' }}
+        run: '& ./installer/test_windows_gui.ps1'
 
       - if: startsWith(github.ref, 'refs/tags/')
         name: Publish Release Artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ./target/release/ssb.exe
-            ./target/release/ssb-cli.exe
+            ${{ env.CARGO_TARGET_DIR }}/release/ssb.exe
+            ${{ env.CARGO_TARGET_DIR }}/release/ssb-cli.exe
             ./installer/ssb-installer.exe
 
   ubuntu:
-    # MINIPC-CLEM : libudev-dev, libxdo-dev et la chaîne C sont dans l'image du
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
+    # MINIPC-CLEM : libudev-dev, libssl-dev et la chaîne C sont dans l'image du
     # runner. apt-get y est impossible (root sans capacité : setgroups refusé).
     runs-on: [self-hosted, linux, x64, minipc, podman]
 
     steps:
       - name: Check Ubuntu dependencies
-        run: dpkg -s libudev-dev libxdo-dev build-essential pkg-config >/dev/null
+        run: dpkg -s libudev-dev libssl-dev build-essential pkg-config >/dev/null
 
       - uses: actions/checkout@v4
 
@@ -116,12 +244,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cargo Test
-        run: cargo test
+        run: cargo test --locked
 
       - name: Cargo Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Check Linux installer syntax
+        run: bash -n linux/ubuntu_install.sh
 
   check_style:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     runs-on: [self-hosted, linux, x64, minipc, podman]
     steps:
       - uses: actions/checkout@v4

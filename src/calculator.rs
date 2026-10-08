@@ -1,6 +1,7 @@
 //! Algorithm for computing the brightness percentage for a given time
 
 use sunrise_sunset_calculator::SunriseSunsetResult;
+use validator::Validate;
 
 #[derive(Debug)]
 pub struct BrightnessResult {
@@ -36,24 +37,32 @@ fn sine_curve(
     let brightness = brightness.round() as u32; // round to nearest integer brightness
 
     // Work out the expiry time; when the brightness will change to the next integer value
-    let mut next_update_brightness = if decreasing {
-        brightness - 1
+    // Rounding changes at half-integers, not at the next integer. At an
+    // endpoint (including 0%) wait for the transition to end instead of
+    // subtracting from zero or returning an expiry in the past.
+    let threshold = if decreasing {
+        brightness as f64 - 0.5
     } else {
-        brightness + 1
+        brightness as f64 + 0.5
     };
-    if next_update_brightness > high_brightness {
-        next_update_brightness = high_brightness;
-    } else if next_update_brightness < low_brightness {
-        next_update_brightness = low_brightness;
+    let end = event_time + transition as i64 / 2;
+    let expiry_time = if threshold < low_brightness as f64 || threshold > high_brightness as f64 {
+        end
+    } else {
+        let asin = ((threshold - y_offset) / y_multiplier)
+            .clamp(-1.0, 1.0)
+            .asin();
+        let crossing = asin / x_multiplier;
+        // At a rising half-integer tie, round() already selects the new value.
+        // A falling tie keeps the old value until the following second.
+        let offset = if decreasing {
+            crossing.floor() as i64 + 1
+        } else {
+            crossing.ceil() as i64
+        };
+        offset + event_time
     }
-    let expiry_time = if time_now == event_time {
-        time_now + 1 // Don't get stuck into an infinite loop when exactly on the boundary
-    } else {
-        // Inverse of the sine function at next_update_brightness
-        let asin = ((next_update_brightness as f64 - y_offset) / y_multiplier).asin();
-        let expiry_offset = (asin / x_multiplier).round();
-        expiry_offset as i64 + event_time
-    };
+    .max(time_now + 1);
     BrightnessResult {
         expiry_time: Some(expiry_time),
         brightness,
@@ -85,67 +94,167 @@ pub fn calculate_brightness(
         };
     }
 
-    // Apply the configured offsets. A positive offset advances the transition,
-    // i.e. shifts the solar event earlier; a negative offset delays it.
-    let rise = sun.rise - (sunrise_offset_mins as i64) * 60;
-    let set = sun.set - (sunset_offset_mins as i64) * 60;
+    let events = shifted_events(sun, sunrise_offset_mins, sunset_offset_mins);
+    calculate_from_events(
+        brightness_day,
+        brightness_night,
+        transition_mins,
+        &events,
+        time_now,
+    )
+}
 
-    let low = brightness_day.min(brightness_night);
-    let high = brightness_day.max(brightness_night);
-    let transition_secs = transition_mins * 60; // time for transition from low to high
-    let half = (transition_secs / 2) as i64;
-    // If nighttime brightness is greater than day (weird!) the sine slopes flip:
-    // the morning event then dims, and the evening event brightens.
-    let backwards = brightness_night > brightness_day;
-    let morning_decreasing = backwards;
-    let evening_decreasing = !backwards;
-    // Transition sinusoïdale centrée sur l'événement (bornée à [event ± half] par
-    // les branches ci-dessous). Capture la config commune pour ne pas répéter les
-    // six mêmes arguments à chaque appel.
-    let transition = |event: i64, decreasing: bool| {
-        sine_curve(time_now, transition_secs, event, decreasing, low, high)
-    };
+#[derive(Clone, Copy, Debug)]
+struct SolarEvent {
+    time: i64,
+    sunrise: bool,
+}
 
-    // Le programme de luminosité est une courbe affine par morceaux construite
-    // **uniquement** à partir des événements décalés (`rise`/`set`), sans dépendre
-    // de `sun.visible`. Choisir le régime sur `sun.visible` évaluerait la sinusoïde
-    // hors de sa fenêtre lorsqu'un décalage éloigne une transition de l'événement
-    // solaire réel, créant un pic parasite entre la transition décalée et cet
-    // événement. Ici, chaque transition est bornée à [event - half, event + half]
-    // et les plateaux la prolongent : le décalage devient un simple glissement.
-    if sun.visible {
-        // Journée : la transition du matin est derrière nous, celle du soir devant.
-        //   nuit | rise-half [montée] rise+half | jour | set-half [descente] set+half | nuit
-        if time_now < rise - half {
-            plateau(brightness_night, rise - half)
-        } else if time_now < rise + half {
-            transition(rise, morning_decreasing)
-        } else if time_now < set - half {
-            plateau(brightness_day, set - half)
-        } else if time_now < set + half {
-            transition(set, evening_decreasing)
+fn shifted_events(
+    sun: &SunriseSunsetResult,
+    sunrise_offset: i32,
+    sunset_offset: i32,
+) -> Vec<SolarEvent> {
+    let mut events = vec![
+        SolarEvent {
+            time: sun.rise - i64::from(sunrise_offset) * 60,
+            sunrise: true,
+        },
+        SolarEvent {
+            time: sun.set - i64::from(sunset_offset) * 60,
+            sunrise: false,
+        },
+    ];
+    events.sort_by_key(|event| (event.time, !event.sunrise));
+    events
+}
+
+/// Solar events covering a calculation interval, including neighbouring events.
+/// Collect once for a preview, so each graph sample doesn't repeat solar searches.
+pub struct SolarSchedule {
+    events: Vec<SolarEvent>,
+}
+
+impl SolarSchedule {
+    pub fn new(
+        location: crate::config::Location,
+        start: i64,
+        end: i64,
+        sunrise_offset: i32,
+        sunset_offset: i32,
+    ) -> anyhow::Result<Self> {
+        use sunrise_sunset_calculator::SunriseSunsetParameters;
+        location.validate()?;
+        anyhow::ensure!(start <= end, "Solar schedule interval is reversed");
+        anyhow::ensure!(
+            (-180..=180).contains(&sunrise_offset) && (-180..=180).contains(&sunset_offset),
+            "Solar offsets must be between -180 and 180 minutes"
+        );
+        // Validated settings allow at most 3h of offset and a 3h half-transition.
+        let margin = 6 * 3600;
+        let mut sun =
+            SunriseSunsetParameters::new(start - margin, location.latitude, location.longitude)
+                .calculate()?;
+        let mut events = shifted_events(&sun, sunrise_offset, sunset_offset);
+        // Offsets may swap the two events around a short day/night. Include
+        // the predecessor too, so the initial plateau never depends on where
+        // the preview or controller's search interval started.
+        let previous_sun = SunriseSunsetParameters::new(
+            sun.rise.min(sun.set) - 2,
+            location.latitude,
+            location.longitude,
+        )
+        .calculate()?;
+        let previous_rise = previous_sun.rise < previous_sun.set;
+        let previous_time = previous_sun.rise.min(previous_sun.set);
+        let previous_offset = if previous_rise {
+            sunrise_offset
         } else {
-            // Transition du soir terminée mais le soleil réel est encore levé :
-            // on tient le plateau nuit et on recalcule au coucher réel (événements frais).
-            plateau(brightness_night, sun.set)
+            sunset_offset
+        };
+        events.push(SolarEvent {
+            time: previous_time - i64::from(previous_offset) * 60,
+            sunrise: previous_rise,
+        });
+        let mut latest = sun.rise.max(sun.set);
+        while latest <= end + margin {
+            sun = SunriseSunsetParameters::new(latest + 2, location.latitude, location.longitude)
+                .calculate()?;
+            let next = sun.rise.max(sun.set);
+            anyhow::ensure!(next > latest, "Solar event search did not progress");
+            let sunrise = sun.rise > sun.set;
+            let offset = if sunrise {
+                sunrise_offset
+            } else {
+                sunset_offset
+            };
+            events.push(SolarEvent {
+                time: next - i64::from(offset) * 60,
+                sunrise,
+            });
+            latest = next;
         }
-    } else {
-        // Nuit : la transition du soir est derrière nous, celle du matin devant.
-        //   jour | set-half [descente] set+half | nuit | rise-half [montée] rise+half | jour
-        if time_now < set - half {
-            plateau(brightness_day, set - half)
-        } else if time_now < set + half {
-            transition(set, evening_decreasing)
-        } else if time_now < rise - half {
-            plateau(brightness_night, rise - half)
-        } else if time_now < rise + half {
-            transition(rise, morning_decreasing)
-        } else {
-            // Transition du matin terminée mais le soleil réel n'est pas encore levé :
-            // on tient le plateau jour et on recalcule au lever réel (événements frais).
-            plateau(brightness_day, sun.rise)
-        }
+        events.sort_by_key(|event| (event.time, !event.sunrise));
+        Ok(Self { events })
     }
+
+    pub fn calculate(&self, day: u32, night: u32, transition: u32, now: i64) -> BrightnessResult {
+        calculate_from_events(day, night, transition, &self.events, now)
+    }
+}
+
+fn calculate_from_events(
+    day: u32,
+    night: u32,
+    transition: u32,
+    events: &[SolarEvent],
+    now: i64,
+) -> BrightnessResult {
+    if day == night {
+        return BrightnessResult {
+            brightness: day,
+            expiry_time: None,
+        };
+    }
+    let mut brightness = if events[0].sunrise { night } else { day };
+    for (index, event) in events.iter().enumerate() {
+        let target = if event.sunrise { day } else { night };
+        // Opposite offsets can reorder a very short day/night, placing two
+        // rises or two sets next to each other. A repeated target is a plateau.
+        if target == brightness {
+            continue;
+        }
+        let mut duration = i64::from(transition) * 60;
+        // Short days/nights and opposite offsets can make transition windows
+        // overlap. Shorten them symmetrically to preserve continuity at each
+        // event, instead of jumping from one incomplete curve to another.
+        if let Some(previous) = index.checked_sub(1).map(|i| events[i]) {
+            duration = duration.min(event.time - previous.time);
+        }
+        if let Some(next) = events.get(index + 1) {
+            duration = duration.min(next.time - event.time);
+        }
+        let half = duration / 2;
+        if now < event.time - half {
+            return plateau(brightness, event.time - half);
+        }
+        if now < event.time + half {
+            return sine_curve(
+                now,
+                duration as u32,
+                event.time,
+                if event.sunrise {
+                    night > day
+                } else {
+                    day > night
+                },
+                day.min(night),
+                day.max(night),
+            );
+        }
+        brightness = target;
+    }
+    plateau(brightness, now + 60)
 }
 
 /// Instant d'échantillonnage suivant, garantissant une progression **stricte**.
@@ -167,6 +276,105 @@ pub fn next_sample_time(current: i64, expiry: Option<i64>, end: i64) -> i64 {
 mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn zero_brightness_and_rounding_expiries_are_safe() {
+        for decreasing in [false, true] {
+            for (low, high) in [(0, 100), (0, 1), (35, 76), (40, 80)] {
+                for time in -1800..1800 {
+                    let result = sine_curve(time, 3600, 0, decreasing, low, high);
+                    assert!((low..=high).contains(&result.brightness));
+                    let expiry = result.expiry_time.unwrap();
+                    assert!(expiry > time);
+                    // No rounded brightness step should be skipped before expiry.
+                    if expiry > time + 1 {
+                        assert_eq!(
+                            sine_curve(expiry - 1, 3600, 0, decreasing, low, high).brightness,
+                            result.brightness
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zero_transition_switches_at_shifted_events() {
+        let sun = SunriseSunsetResult {
+            rise: 10000,
+            set: 50000,
+            visible: true,
+        };
+        for (time, expected) in [(6399, 0), (6400, 100), (46399, 100), (46400, 0)] {
+            let result = calculate_brightness(100, 0, 0, 60, 60, &sun, time);
+            assert_eq!(result.brightness, expected);
+            assert!(result.expiry_time.unwrap() > time);
+        }
+    }
+
+    #[test]
+    fn overlapping_transitions_do_not_jump() {
+        let sun = SunriseSunsetResult {
+            rise: 10000,
+            set: 16000,
+            visible: true,
+        };
+        let before = calculate_brightness(100, 0, 360, 0, 0, &sun, 20799);
+        let after = calculate_brightness(100, 0, 360, 0, 0, &sun, 20800);
+        assert!(before.brightness.abs_diff(after.brightness) <= 1);
+    }
+
+    #[test]
+    fn short_day_schedule_is_continuous_across_real_solar_events() {
+        let start = Utc
+            .with_ymd_and_hms(2026, 12, 21, 0, 0, 0)
+            .unwrap()
+            .timestamp();
+        let location = crate::config::Location {
+            latitude: 60.0,
+            longitude: 2.0,
+        };
+        for (sunrise_offset, sunset_offset) in [(-180, 180), (180, -180), (0, 0)] {
+            let schedule = SolarSchedule::new(
+                location,
+                start,
+                start + 86400,
+                sunrise_offset,
+                sunset_offset,
+            )
+            .unwrap();
+            for (day, night) in [(100, 0), (0, 100)] {
+                let mut previous = schedule.calculate(day, night, 360, start).brightness;
+                // With crossed offsets the nearest events are only ~8 minutes
+                // apart. Check continuity per second rather than impose a
+                // five-percent/minute speed limit not present in the settings.
+                for second in 1..=86400 {
+                    let now = start + second;
+                    let result = schedule.calculate(day, night, 360, now);
+                    assert!(result.brightness <= 100);
+                    assert!(
+                        previous.abs_diff(result.brightness) <= 1,
+                        "Abrupt change at {now} offsets={sunrise_offset}/{sunset_offset}: {previous} -> {}; events={:?}",
+                        result.brightness, schedule.events
+                    );
+                    assert!(result.expiry_time.unwrap() > now);
+                    previous = result.brightness;
+                    if second % 3600 == 0 {
+                        let fresh =
+                            SolarSchedule::new(location, now, now, sunrise_offset, sunset_offset)
+                                .unwrap();
+                        assert!(
+                            fresh
+                                .calculate(day, night, 360, now)
+                                .brightness
+                                .abs_diff(result.brightness)
+                                <= 1
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_sunset_sine_curve() {

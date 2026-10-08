@@ -53,8 +53,11 @@ fn run(args: Args) -> anyhow::Result<()> {
         let (tx, rx) = mpsc::channel();
         let config = Arc::new(RwLock::new(config));
         let controller = BrightnessController::start(config, || {});
-        let _event_watcher = EventWatcher::start(&controller, None);
-        ctrlc::set_handler(move || tx.send(()).unwrap()).expect("Error setting Ctrl-C handler");
+        let _event_watcher = EventWatcher::start(&controller, None)?;
+        ctrlc::set_handler(move || {
+            let _ = tx.send(());
+        })
+        .context("Error setting Ctrl-C handler")?;
         rx.recv().expect("Could not receive from channel.");
     }
     Ok(())

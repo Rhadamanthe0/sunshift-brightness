@@ -57,14 +57,20 @@ fn display_apply_results(results: &ApplyResults, ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(SPACING);
 
+    for error in &results.unknown_devices {
+        ui.label(egui::RichText::new(error).color(egui::Color32::RED));
+    }
+
     if results.monitors.is_empty() {
-        ui.add(no_devices_found());
+        if results.unknown_devices.is_empty() {
+            ui.add(no_devices_found());
+        }
         return;
     }
 
     egui::Grid::new("monitors_grid")
         .striped(true)
-        .num_columns(5)
+        .num_columns(6)
         .show(ui, |ui| {
             ui.label("Name");
             ui.label("Day")
@@ -94,14 +100,18 @@ fn display_apply_results(results: &ApplyResults, ui: &mut egui::Ui) {
                             .on_hover_text(e),
                     };
 
-                    match brightness.expiry_time {
-                        None => ui.label("Never"),
-                        Some(expiry_time) => {
-                            let changes_at = Local.timestamp_opt(expiry_time, 0).unwrap();
-                            ui.label(changes_at.format("%H:%M %P").to_string())
-                                .on_hover_text(changes_at.format("%b %d").to_string())
-                        }
-                    };
+                    if monitor.error.is_some() {
+                        ui.label("Retry within 1 min");
+                    } else {
+                        match brightness.expiry_time {
+                            None => ui.label("Never"),
+                            Some(expiry_time) => {
+                                let changes_at = Local.timestamp_opt(expiry_time, 0).unwrap();
+                                ui.label(changes_at.format("%I:%M %P").to_string())
+                                    .on_hover_text(changes_at.format("%b %d").to_string())
+                            }
+                        };
+                    }
                 } else {
                     (0..3).for_each(|_| {
                         ui.label("N/A");

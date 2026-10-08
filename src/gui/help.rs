@@ -23,17 +23,16 @@ impl Page for HelpPage {
 
         ui.hyperlink_to(
             " Home page",
-            "https://github.com/jacob-pro/solar-screen-brightness",
+            "https://github.com/Rhadamanthe0/sunshift-brightness",
         );
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.label("Software version: ");
-            let version_url = format!(
-                "https://github.com/jacob-pro/solar-screen-brightness/releases/tag/{}",
-                env!("CARGO_PKG_VERSION")
+            ui.hyperlink_to(
+                env!("CARGO_PKG_VERSION"),
+                "https://github.com/Rhadamanthe0/sunshift-brightness/releases",
             );
-            ui.hyperlink_to(env!("CARGO_PKG_VERSION"), version_url);
         });
 
         ui.horizontal(|ui| {
@@ -41,7 +40,7 @@ impl Page for HelpPage {
             ui.label("Please report any bugs on the ");
             ui.hyperlink_to(
                 "issues page",
-                "https://github.com/jacob-pro/solar-screen-brightness/issues",
+                "https://github.com/Rhadamanthe0/sunshift-brightness/issues",
             );
         });
 

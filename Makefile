@@ -2,8 +2,8 @@
 test:
 	cargo fmt -- --check
 	cargo-sort --check --workspace
-	cargo clippy --all-features --workspace -- -D warnings
-	cargo test --all-features --workspace
+	cargo clippy --locked --all-targets --all-features --workspace -- -D warnings
+	cargo test --locked --all-features --workspace
 
 .PHONY: format
 format:
@@ -12,4 +12,4 @@ format:
 
 .PHONY: installer
 installer:
-	makensis installer/windows.nsi
+	cd installer && makensis windows.nsi
