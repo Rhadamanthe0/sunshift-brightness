@@ -17,7 +17,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to build the native GUI test executable
 $executable = $null
 foreach ($line in $artifacts) {
     $artifact = $line | ConvertFrom-Json
-    if ($artifact.reason -eq 'compiler-artifact' -and $artifact.executable) {
+    if ($artifact.reason -eq 'compiler-artifact' -and $artifact.executable -and
+        $artifact.profile.test -and $artifact.target.kind -contains 'lib') {
         $executable = $artifact.executable
     }
 }
