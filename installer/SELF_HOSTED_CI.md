@@ -90,8 +90,8 @@ monitor APIs. With `physical_monitor_check=true` on a self-hosted Windows run,
 it reads a monitor's native brightness values, sends those exact values and
 reads them back. Internal Windows displays use the same IOCTL interface as the
 application; both AC/battery values and the current policy are preserved.
-External displays use DDC/CI. At least one compatible monitor must pass; an
-unavailable monitor fails the check. Ordinary runs only enumerate monitors and
+External displays use DDC/CI. At least one compatible monitor must pass;
+if none passes, the check fails. Ordinary runs only enumerate monitors and
 do not send brightness commands. Neither mode changes the application configuration.
 
 If this check fails, inspect the physical monitor description and Windows error
