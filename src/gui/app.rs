@@ -254,3 +254,121 @@ pub fn save_config(config: &SsbConfig, transitions: &Transitions) -> bool {
     }
     true
 }
+
+#[cfg(all(test, windows))]
+mod native_tests {
+    use super::*;
+    use crate::config::{Location, MonitorOverride, MonitorProperty};
+    use crate::controller::BrightnessController;
+    use crate::gui::WgpuWinitApp;
+    use egui_winit::winit::event::Event;
+    use egui_winit::winit::event_loop::EventLoopBuilder;
+    use egui_winit::winit::platform::run_return::EventLoopExtRunReturn;
+    use egui_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    #[ignore = "Requires a Windows desktop with Vulkan or OpenGL; run explicitly on the PC runner"]
+    fn native_windows_gui_lifecycle() {
+        let config = Arc::new(RwLock::new(SsbConfig {
+            location: Some(Location {
+                latitude: 48.8566,
+                longitude: 2.3522,
+            }),
+            sunrise_offset_mins: 180,
+            sunset_offset_mins: -180,
+            overrides: vec![MonitorOverride {
+                key: MonitorProperty::DeviceName,
+                pattern: "*".into(),
+                brightness: None,
+            }],
+            ..Default::default()
+        }));
+        // No config/log files are loaded or saved. The wildcard disables every
+        // monitor, so the real device enumeration never writes brightness.
+        let (ready, initialized) = std::sync::mpsc::channel();
+        let controller = BrightnessController::start(config.clone(), move || {
+            let _ = ready.send(());
+        });
+        initialized.recv_timeout(Duration::from_secs(30)).unwrap();
+        let results = controller.last_result.read().unwrap();
+        let result = results.as_ref().unwrap();
+        assert!(result.monitors.iter().all(|m| m.brightness.is_none()));
+        eprintln!(
+            "Native enumeration: {} disabled monitors, {} device errors",
+            result.monitors.len(),
+            result.unknown_devices.len()
+        );
+        drop(results);
+
+        let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event()
+            .with_any_thread(true)
+            .build();
+        let _tray = crate::tray::create(&event_loop);
+        let proxy = event_loop.create_proxy();
+        let mut framework = WgpuWinitApp::new(proxy.clone(), true, || {
+            SsbEguiApp::new(
+                proxy.clone(),
+                controller.last_result.clone(),
+                config.clone(),
+                controller.sender.clone(),
+            )
+        });
+        let pages = enum_iterator::all::<PageId>().collect::<Vec<_>>();
+        let mut rendered = 0;
+        let mut closed = false;
+        let mut reopened = false;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        event_loop.run_return(|event, target, flow| {
+            assert!(Instant::now() < deadline, "Native GUI test timed out");
+            framework.on_event(target, &event);
+            if matches!(event, Event::Resumed) {
+                assert!(
+                    framework.window().is_none(),
+                    "Minimised startup opened a window"
+                );
+                framework.on_event(
+                    target,
+                    &Event::UserEvent(UserEvent::OpenWindow("Native GUI test")),
+                );
+            }
+            if matches!(event, Event::RedrawEventsCleared) {
+                if rendered < pages.len() {
+                    let running = framework.running.as_mut().unwrap();
+                    let backend = running
+                        .painter
+                        .render_state()
+                        .unwrap()
+                        .adapter
+                        .get_info()
+                        .backend;
+                    assert!(matches!(
+                        backend,
+                        egui_wgpu::wgpu::Backend::Vulkan | egui_wgpu::wgpu::Backend::Gl
+                    ));
+                    running.app.selected_page = pages[rendered];
+                    framework.paint();
+                    eprintln!("Rendered {} with {backend:?}", pages[rendered].title());
+                    rendered += 1;
+                } else if !closed {
+                    framework.close_window();
+                    closed = true;
+                } else if !reopened {
+                    framework.on_event(
+                        target,
+                        &Event::UserEvent(UserEvent::OpenWindow("Native GUI test")),
+                    );
+                    framework.paint();
+                    reopened = true;
+                } else {
+                    framework.close_window();
+                    flow.set_exit();
+                    return;
+                }
+            }
+            flow.set_poll();
+        });
+        assert_eq!(rendered, pages.len());
+        assert!(closed && reopened);
+    }
+}

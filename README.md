@@ -100,6 +100,13 @@ Windows event handling or rendering. With `cargo-audit` installed, `cargo audit`
 checks the locked dependencies against RustSec. Informational dependency warnings
 must be reviewed separately from confirmed vulnerabilities.
 
+The self-hosted Windows job explicitly runs a GUI lifecycle test on the PC's
+Vulkan/OpenGL backend: all pages, the solar preview, tray creation, and window
+reopening. It uses an in-memory configuration with all monitors disabled and
+does not save application data. An interactive Windows desktop is required.
+It also tests the native NSIS install/upgrade/uninstall cycle in an isolated
+temporary fixture with unique process, registry and shortcut names.
+
 To validate on your Linux server or Windows PC, see the
 [self-hosted CI instructions](installer/SELF_HOSTED_CI.md).
 

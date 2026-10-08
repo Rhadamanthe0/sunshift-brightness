@@ -29,8 +29,9 @@ allowance. A manual run can select `github-hosted` instead.
    cache. Completed tool extractions are reused by later jobs. Only the installer
    compiler runs; the generated installer does not.
 4. Start `.\run.cmd` from the runner directory and leave that terminal open.
-   The PC must be awake. For later GUI or physical-monitor checks, run the runner
-   in the logged-in user's session rather than as a background Windows service.
+   The PC must be awake. Run it in the logged-in user's session rather than as
+   a background Windows service: the Windows job opens a temporary GUI and tray
+   icon to check rendering and window reopening. Vulkan or OpenGL is required.
 
 GitHub's runner configuration requires repository administration rights.
 Registering a runner does not install the brightness application or change
@@ -59,6 +60,20 @@ available for automatic push/PR runs.
 A Windows job stays queued until an online runner has all three labels:
 `self-hosted`, `windows`, `x64`.
 
-These jobs compile and test software. They do not launch the GUI, install or
-uninstall the application, or change physical monitor brightness. Those checks
-need an attached compatible monitor and a separate interactive test session.
+The Windows PC job also renders all GUI pages, including the solar preview,
+and closes/reopens its temporary window. It uses an in-memory configuration
+with every monitor disabled and does not load or save your application files.
+The GUI test is selected explicitly by the workflow; ordinary `cargo test`
+skips it because it needs a Windows desktop with Vulkan or OpenGL.
+
+The PC job also executes an isolated NSIS fixture: two upgrades preserve a test
+configuration, replace a locked CLI file after stopping its test process, and
+verify payloads, autostart command and shortcuts. It then uninstalls the fixture.
+Its files and shortcuts are under `RUNNER_TEMP`, and its registry key is under
+`HKCU\Software\SunshiftBrightness\CI\<GUID>` rather than the real autostart key.
+Executable names also include the GUID. The fixture never starts the application and
+does not touch your existing installation or its configuration.
+
+These jobs do not change physical monitor brightness or test an actual
+login/lock/unlock session. Those checks need an attached compatible monitor
+and a separate interactive test session.

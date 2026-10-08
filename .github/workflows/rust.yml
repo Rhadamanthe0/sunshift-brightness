@@ -98,6 +98,10 @@ jobs:
       - name: Cargo Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
+      - name: Windows GUI lifecycle
+        if: runner.environment == 'self-hosted'
+        run: cargo test --locked native_windows_gui_lifecycle -- --ignored --nocapture --test-threads=1
+
       - name: Cargo Release Build
         run: cargo build --locked --release
 
@@ -137,6 +141,10 @@ jobs:
             }
             & "$directory\nsis-3.11\makensis.exe" windows.nsi
           }
+
+      - name: Windows installer lifecycle
+        if: runner.environment == 'self-hosted'
+        run: '& ./installer/test_windows_installer.ps1'
 
       - if: startsWith(github.ref, 'refs/tags/')
         name: Publish Release Artifacts
