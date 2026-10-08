@@ -19,7 +19,10 @@ concurrency:
 jobs:
 
   windows:
-    runs-on: windows-latest
+    # PC-PRO-CLEM : runner Windows auto-hébergé du dépôt (label sunshift).
+    # Le PC fixe n'a pas encore son runner : en attendant, PC-PRO prend tout
+    # (le premier allumé prend le job une fois les deux en ligne).
+    runs-on: [self-hosted, windows, x64, sunshift]
 
     steps:
       - uses: actions/checkout@v4
