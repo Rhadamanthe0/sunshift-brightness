@@ -27,14 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          # Les runners auto-hébergés n'ont pas le profil rustup des runners
-          # GitHub : clippy doit être demandé explicitement.
-          components: clippy
-
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
