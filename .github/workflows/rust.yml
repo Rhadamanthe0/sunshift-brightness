@@ -19,10 +19,48 @@ concurrency:
 jobs:
 
   windows:
-    runs-on: windows-latest
+    # PC-PRO-CLEM : runner Windows auto-hébergé du dépôt (label sunshift).
+    # Le PC fixe n'a pas encore son runner : en attendant, PC-PRO prend tout
+    # (le premier allumé prend le job une fois les deux en ligne).
+    runs-on: [self-hosted, windows, x64, sunshift]
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          # Les runners auto-hébergés n'ont pas le profil rustup des runners
+          # GitHub : clippy doit être demandé explicitement.
+          components: clippy
+
+      # PC-PRO-CLEM n'a aucun MSYS2 : l'édition de lien release (toolchain
+      # GNU) exige dlltool.exe, fourni par les binutils MinGW (paquet gcc).
+      # Même pin que meeting-recorder-windows.
+      - name: Install MinGW (MSYS2 UCRT64)
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      # setup-msys2 ne met pas ucrt64/bin au PATH des steps suivants :
+      # on l'expose via GITHUB_PATH pour que l'édition de lien trouve dlltool.
+      - name: Expose MinGW au PATH
+        run: |
+          $bindir = $null
+          foreach ($cand in @((Join-Path $env:RUNNER_TEMP 'setup-msys2/ucrt64/bin/dlltool.exe'), 'D:\msys64\ucrt64\bin\dlltool.exe', 'C:\msys64\ucrt64\bin\dlltool.exe')) {
+            if ($cand -and (Test-Path -LiteralPath $cand)) { $bindir = Split-Path $cand -Parent; break }
+          }
+          if (-not $bindir) {
+            $found = Get-ChildItem -Path $env:RUNNER_TEMP -Filter 'dlltool.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $bindir = $found.DirectoryName }
+          }
+          if (-not $bindir) { throw 'dlltool.exe introuvable après Install MinGW (MSYS2 UCRT64)' }
+          $bindir >> $env:GITHUB_PATH
+          $env:PATH = "$bindir;$env:PATH"
+          & (Join-Path $bindir 'dlltool.exe') --version | Select-Object -First 2
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
