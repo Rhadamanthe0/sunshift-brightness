@@ -182,7 +182,7 @@ pub fn apply_brightness(
                         brightness_day,
                         brightness_night,
                     }),
-                    error: error.map(|e| e.to_string()),
+                    error: error.map(device_error_message),
                 }
             } else {
                 log::info!(
@@ -200,10 +200,18 @@ pub fn apply_brightness(
         .collect::<Vec<_>>();
 
     ApplyResults {
-        unknown_devices: failed_monitors.into_iter().map(|f| f.to_string()).collect(),
+        unknown_devices: failed_monitors
+            .into_iter()
+            .map(device_error_message)
+            .collect(),
         monitors: monitor_results,
         sun: sun.into(),
     }
+}
+
+fn device_error_message(error: brightness::Error) -> String {
+    // The outer error alone omits the OS/driver failure needed for diagnosis.
+    format!("{:#}", anyhow::Error::new(error))
 }
 
 impl MonitorProperties {
@@ -237,6 +245,15 @@ impl MonitorProperties {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_errors_preserve_the_underlying_cause() {
+        let cause = std::io::Error::other("Enumeration access denied");
+        let error = brightness::Error::ListingDevicesFailed(Box::new(cause));
+        let message = device_error_message(error);
+        assert!(message.contains("Failed to list brightness devices"));
+        assert!(message.contains("Enumeration access denied"));
+    }
 
     #[test]
     fn first_matching_override_wins_including_disabled_monitors() {
