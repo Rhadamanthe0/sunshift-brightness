@@ -65,7 +65,10 @@ jobs:
           $env:RUSTUP_TOOLCHAIN = 'stable-x86_64-pc-windows-gnu'
           $rustup = Join-Path $env:CARGO_HOME 'bin\rustup.exe'
           if (-not (Test-Path $rustup)) {
-            $installer = Join-Path $env:RUNNER_TEMP 'ssb-rustup-init.exe'
+            $temporary = Join-Path $env:RUNNER_TEMP 'ssb-rustup'
+            New-Item -ItemType Directory -Path $temporary -Force | Out-Null
+            # Rustup selects installer/proxy mode from its executable name.
+            $installer = Join-Path $temporary 'rustup-init.exe'
             $uri = 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe'
             Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $installer -TimeoutSec 300
             Invoke-WebRequest -UseBasicParsing -Uri "$uri.sha256" -OutFile "$installer.sha256" -TimeoutSec 60
