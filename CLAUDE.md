@@ -77,7 +77,7 @@ Spécifique à cet environnement (Drive monté + bac à sable PowerShell) — po
 
 Fork publié en **privé** sur le compte GitHub de l'utilisateur (CPI). Branche de travail `feature/sunrise-sunset-advance`, fusionnée dans la branche par défaut. Le dépôt amont reste `jacob-pro/solar-screen-brightness` (LGPL). L'installeur compilé est attaché en **Release** (binaire hors historique git).
 
-**CI (`.github/workflows/rust.yml`)** : GitHub Actions lance les contrôles à **chaque push** sur les runners personnels Windows et Linux. Le lancement manuel permet de choisir la plateforme et, facultativement, un runner Windows hébergé par GitHub (soumis au quota et à la facturation). Voir `installer/SELF_HOSTED_CI.md`. Un **tag** poussé (`refs/tags/…`) déclenche en plus la publication d'une Release avec les binaires + installeur. La Release `v2.3.2-custom` a, elle, été créée manuellement via `gh`.
+**CI (`.github/workflows/rust.yml`)** : à **chaque push/PR**, le job `windows` tourne sur runner **éphémère** `windows-latest` (un job PR exécute du code non relu : jamais sur le runner persistant qui publie les releases — constat Codex Security, 10/2026) et les jobs Linux sur les runners personnels. Le runner Windows auto-hébergé ne sert qu'aux **tags** (build + publication Release) et aux lancements manuels. Le lancement manuel permet de choisir la plateforme et le runner Windows. Voir `installer/SELF_HOSTED_CI.md`. Un **tag** poussé (`refs/tags/…`) déclenche en plus la publication d'une Release avec les binaires + installeur. La Release `v2.3.2-custom` a, elle, été créée manuellement via `gh`.
 
 **Trois jobs — pièges à connaître :**
 
