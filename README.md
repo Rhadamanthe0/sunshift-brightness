@@ -89,13 +89,25 @@ To rebuild the installer from source (requires `makensis`):
 makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> installer\windows.nsi
 ```
 
-CI builds the installer on every push using the Windows PC runner. It finds
-NSIS locally or downloads a verified portable copy, then invokes `makensis`
-**from the `installer/` directory**, where the default relative paths
-for the icon resolve correctly and `ssb-installer.exe` is produced. CI passes
-the actual Cargo output directory with `/DBINDIR`; on the PC, build artifacts
-stay in the runner's local tool cache. A manual run can select a GitHub-hosted Windows runner, where
-NSIS is installed with Chocolatey.
+Le workflow Rust Build s'exécute uniquement sur MINIPC-CLEM. Chaque job
+Windows exige une VM neuve avec les labels
+`self-hosted,windows,x64,minipc,ephemeral,sunshift` ; les jobs Linux utilisent
+`self-hosted,linux,x64,minipc,podman`. Aucun de ces jobs ne se replie sur
+PC-PRO-CLEM, PC-FIXE-CLEM ou un runner hébergé GitHub. Les tâches Dependabot
+font exception à cette destination et gardent leur service actuel.
+
+La VM doit être détruite après chaque job, y compris après échec ou annulation ;
+les labels ne prouvent pas cette isolation. Le workflow prépare Rust/MinGW et
+NSIS portables avec vérification des archives, puis lance `makensis` **depuis
+le dossier `installer/`**, en passant la sortie réelle de Cargo par `/DBINDIR`.
+Les changements de workflow n'installent ni la VM ni son runner.
+
+Sur tag, après réussite des contrôles Windows, les mêmes `ssb.exe`,
+`ssb-cli.exe` et `ssb-installer.exe` sont transmis à un job Linux de publication.
+Seul ce job possède `contents: write` ; compilations et tests gardent
+`contents: read`, et checkout ne conserve pas les identifiants GitHub.
+Le lancement manuel choisit la plateforme et le contrôle physique optionnel ;
+le choix du runner n'est plus un paramètre.
 
 ### Validation
 
@@ -107,15 +119,24 @@ Windows event handling or rendering. With `cargo-audit` installed, `cargo audit`
 checks the locked dependencies against RustSec. Informational dependency warnings
 must be reviewed separately from confirmed vulnerabilities.
 
-The self-hosted Windows job explicitly runs a GUI lifecycle test on the PC's
-Vulkan/OpenGL backend: all pages, the solar preview, tray creation, and window
-reopening. It uses an in-memory configuration with all monitors disabled and
-does not save application data. An interactive Windows desktop is required.
-It also tests the native NSIS install/upgrade/uninstall cycle in an isolated
-temporary fixture with unique process, registry and shortcut names.
+Le job Windows conserve compilation native, tests, Clippy, cycle NSIS
+installation/mise à niveau/désinstallation, et cycle GUI/tray/fenêtre. Un bureau
+Windows interactif est requis. La préparation approuvée utilise le rendu CPU
+Vulkan SwiftShader et OpenGL ES via EGL/ANGLE logiciel ; elle ne prouve pas le support d'un
+GPU ou d'un moniteur physique. Le workflow demande Vulkan et OpenGL dans deux
+passes natives distinctes. Chaque test restreint l'API autorisée et vérifie le
+backend réellement retenu ; il refuse un repli silencieux vers l'autre API.
 
-To validate on your Linux server or Windows PC, see the
-[self-hosted CI instructions](installer/SELF_HOSTED_CI.md).
+La configuration du test GUI reste en mémoire avec tous les moniteurs
+désactivés ; aucun fichier applicatif utilisateur n'est enregistré. La fixture
+NSIS utilise des noms uniques de processus, clés de registre et raccourcis dans
+un répertoire temporaire. Les détails sont dans le
+[guide CI MINIPC](installer/SELF_HOSTED_CI.md).
+
+Le paramètre optionnel `physical_monitor_check` exige un moniteur physique
+compatible accessible au job Windows. Un écran virtuel ne prouve ni DDC/CI ni
+le contrôle natif de luminosité. Sans ce matériel, ce contrôle reste non
+vérifié ; il ne doit pas être remplacé ou annoncé réussi.
 
 ### CLI
 

@@ -1,6 +1,11 @@
-param([switch] $PrepareOnly)
+param(
+    [switch] $PrepareOnly,
+    [ValidateSet('Vulkan', 'OpenGL')]
+    [string] $Backend = 'Vulkan'
+)
 $ErrorActionPreference = 'Stop'
-$filter = 'native_windows_gui_lifecycle'
+$backendName = if ($PSBoundParameters.ContainsKey('Backend')) { $Backend.ToLowerInvariant() } else { '' }
+$filter = 'gui::app::native_tests::native_windows_gui_lifecycle'
 $executable = $env:SSB_GUI_TEST_EXECUTABLE
 if ($PrepareOnly -or -not $executable) {
     $artifacts = & cargo test --locked --no-run --lib --message-format=json
@@ -17,16 +22,70 @@ if ($PrepareOnly -or -not $executable) {
 if (-not $executable -or -not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw 'Native GUI test executable was not found.'
 }
+# libtest peut terminer avec succès sans exécuter aucun test. Vérifier le nom
+# complet ignoré avant de l'exécuter, sans accepter un filtre devenu obsolète.
+$testList = & $executable --list --ignored
+if ($LASTEXITCODE -ne 0) { throw 'Unable to list the native GUI tests.' }
+$nativeTests = @($testList | Where-Object { $_ -match '(?:^|::)native_windows_gui_lifecycle: test$' })
+if ($nativeTests.Count -ne 1 -or $nativeTests[0] -cne "$($filter): test") {
+    throw 'The expected ignored native GUI test is absent or ambiguous.'
+}
 if ($PrepareOnly) {
     "SSB_GUI_TEST_EXECUTABLE=$executable" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
     return
 }
 
+# wgpu-hal 0.16 loads libEGL.dll (GLES 3); opengl32.dll alone is insufficient.
+# The disposable MINIPC guest supplies these verified libraries. Keep them
+# app-local, including when the executable is copied to the session-0 fixture.
+$glesDirectory = 'C:\RhadaCI\graphics\gles'
+$vulkanDirectory = 'C:\RhadaCI\graphics\vulkan'
+$vulkanIcd = Join-Path $vulkanDirectory 'vk_swiftshader_icd.json'
+$glesLibraries = @()
+# Un backend explicite est une preuve CI sur SwiftShader, sans repli système.
+# Sans sélection, garder le test naturel sur les pilotes de la machine.
+$required = @()
+if ($backendName -eq 'opengl') {
+    $required = @('libEGL.dll', 'libGLESv2.dll', 'vk_swiftshader.dll') |
+        ForEach-Object { Join-Path $glesDirectory $_ }
+} elseif ($backendName -eq 'vulkan') {
+    $required = @('vk_swiftshader_icd.json', 'vulkan-1.dll', 'vk_swiftshader.dll') |
+        ForEach-Object { Join-Path $vulkanDirectory $_ }
+}
+foreach ($file in $required) {
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+        throw "Missing SwiftShader fixture: $file"
+    }
+}
+if ($backendName -eq 'opengl') {
+    $glesLibraries = @(Get-ChildItem -LiteralPath $glesDirectory -Filter '*.dll' -File)
+}
 $session = (Get-Process -Id $PID).SessionId
 Write-Output "GUI test runner session: $session"
 if ($session -ne 0) {
-    & $executable $filter --ignored --nocapture --test-threads=1
-    if ($LASTEXITCODE -ne 0) { throw 'Native GUI lifecycle failed.' }
+    foreach ($library in $glesLibraries) {
+        Copy-Item -LiteralPath $library.FullName -Destination (Split-Path $executable)
+    }
+    $previousBackend = $env:SSB_TEST_GUI_BACKEND
+    $previousIcd = $env:VK_ICD_FILENAMES
+    $previousPath = $env:PATH
+    $previousAngle = $env:ANGLE_DEFAULT_PLATFORM
+    try {
+        $env:SSB_TEST_GUI_BACKEND = if ($backendName) { $backendName } else { $null }
+        if ($backendName -eq 'vulkan') {
+            $env:VK_ICD_FILENAMES = $vulkanIcd
+            $env:PATH = "$vulkanDirectory;$env:PATH"
+        } elseif ($backendName -eq 'opengl') {
+            $env:ANGLE_DEFAULT_PLATFORM = 'swiftshader'
+        }
+        & $executable $filter --exact --ignored --nocapture --test-threads=1
+        if ($LASTEXITCODE -ne 0) { throw 'Native GUI lifecycle failed.' }
+    } finally {
+        $env:SSB_TEST_GUI_BACKEND = $previousBackend
+        $env:VK_ICD_FILENAMES = $previousIcd
+        $env:PATH = $previousPath
+        $env:ANGLE_DEFAULT_PLATFORM = $previousAngle
+    }
     & (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -CheckBrightness:($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1')
     return
 }
@@ -70,6 +129,9 @@ try {
     }
     Set-Acl -LiteralPath $directory -AclObject $acl
     Copy-Item -LiteralPath $executable -Destination $binary
+    foreach ($library in $glesLibraries) {
+        Copy-Item -LiteralPath $library.FullName -Destination $directory
+    }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -Destination $diagnostics
     $gcc = Get-Command gcc.exe -ErrorAction SilentlyContinue
     $dllPath = if ($gcc) { Split-Path $gcc.Source } else { '' }
@@ -86,7 +148,14 @@ try {
     $checkBrightness = if ($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1') { '-CheckBrightness' } else { '' }
     $command = @"
 `$env:PATH = '$dllLiteral;' + `$env:PATH
-`$process = Start-Process -FilePath '$binaryLiteral' -ArgumentList '$filter', '--ignored', '--nocapture', '--test-threads=1' -NoNewWindow -Wait -PassThru -RedirectStandardOutput '$outputLiteral' -RedirectStandardError '$errorLiteral'
+`$env:SSB_TEST_GUI_BACKEND = if ('$backendName') { '$backendName' } else { `$null }
+if ('$backendName' -eq 'vulkan') {
+    `$env:VK_ICD_FILENAMES = '$vulkanIcd'
+    `$env:PATH = '$vulkanDirectory;' + `$env:PATH
+} elseif ('$backendName' -eq 'opengl') {
+    `$env:ANGLE_DEFAULT_PLATFORM = 'swiftshader'
+}
+`$process = Start-Process -FilePath '$binaryLiteral' -ArgumentList '$filter', '--exact', '--ignored', '--nocapture', '--test-threads=1' -NoNewWindow -Wait -PassThru -RedirectStandardOutput '$outputLiteral' -RedirectStandardError '$errorLiteral'
 `$result = `$process.ExitCode
 `$process.Dispose()
 try {

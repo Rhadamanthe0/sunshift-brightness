@@ -267,9 +267,28 @@ mod native_tests {
     use egui_winit::winit::platform::windows::EventLoopBuilderExtWindows;
     use std::time::{Duration, Instant};
 
+    fn assert_rendered_frame(frame: Option<egui::ColorImage>, size: [usize; 2]) {
+        let frame = frame.expect("Native GUI frame was not rendered and captured");
+        assert!(size[0] > 0 && size[1] > 0, "Native GUI frame is empty");
+        assert_eq!(frame.size, size, "Capture does not match the native window");
+        assert_eq!(frame.pixels.len(), size[0] * size[1]);
+        assert!(
+            frame.pixels.iter().any(|pixel| *pixel != frame.pixels[0]),
+            "Native GUI frame contains only a clear color, without UI"
+        );
+        eprintln!(
+            "Captured native GUI frame {}x{} with UI pixels",
+            size[0], size[1]
+        );
+    }
+
     #[test]
-    #[ignore = "Requires a Windows desktop with Vulkan or OpenGL; run explicitly on the PC runner"]
+    #[ignore = "Requires an interactive Windows desktop; run explicitly for each Vulkan/OpenGL backend"]
     fn native_windows_gui_lifecycle() {
+        // Variable lue seulement par ce test ignoré ; aucun repli vers l'autre
+        // API ne doit donner une fausse preuve de rendu (migration MINIPC).
+        let requested = std::env::var("SSB_TEST_GUI_BACKEND").ok();
+        let selected = requested.as_deref().map(crate::gui::ci_test_backend);
         let config = Arc::new(RwLock::new(SsbConfig {
             location: Some(Location {
                 latitude: 48.8566,
@@ -322,6 +341,7 @@ mod native_tests {
                 controller.sender.clone(),
             )
         });
+        framework.test_backend = selected.map(|(supported, _)| supported);
         let pages = enum_iterator::all::<PageId>().collect::<Vec<_>>();
         let mut rendered = 0;
         let mut closed = false;
@@ -344,22 +364,43 @@ mod native_tests {
             if matches!(event, Event::RedrawEventsCleared) {
                 if rendered < pages.len() {
                     let running = framework.running.as_mut().unwrap();
-                    let backend = running
-                        .painter
-                        .render_state()
-                        .unwrap()
-                        .adapter
-                        .get_info()
-                        .backend;
-                    assert!(matches!(
-                        backend,
-                        egui_wgpu::wgpu::Backend::Vulkan | egui_wgpu::wgpu::Backend::Gl
-                    ));
+                    let adapter = running.painter.render_state().unwrap().adapter.get_info();
+                    let backend = adapter.backend;
+                    eprintln!(
+                        "Requested {}; rendering {backend:?}; adapter: {}; device: {:?}",
+                        requested.as_deref().unwrap_or("Vulkan or OpenGL"),
+                        adapter.name,
+                        adapter.device_type
+                    );
+                    if let Some((_, expected)) = selected {
+                        assert_eq!(
+                            backend, expected,
+                            "Requested rendering API was not obtained"
+                        );
+                        // wgpu-hal 0.16 infère le type GL depuis le renderer.
+                        // Le nom SwiftShader approuvé prouve le pilote logiciel,
+                        // sans supposer un DeviceType universel à travers les API.
+                        assert!(
+                            adapter.name.to_ascii_lowercase().contains("swiftshader"),
+                            "Requested SwiftShader software adapter was not obtained"
+                        );
+                    } else {
+                        assert!(matches!(
+                            backend,
+                            egui_wgpu::wgpu::Backend::Vulkan | egui_wgpu::wgpu::Backend::Gl
+                        ));
+                    }
                     running.app.selected_page = pages[rendered];
                     // Ignore desktop input: a user click must never activate
                     // Save against the real configuration during this test.
                     let _ = running.egui_winit.take_egui_input(&running.window);
                     framework.paint();
+                    let running = framework.running.as_mut().unwrap();
+                    let size = running.window.inner_size();
+                    assert_rendered_frame(
+                        running.test_frame.take(),
+                        [size.width as usize, size.height as usize],
+                    );
                     eprintln!("Rendered {} with {backend:?}", pages[rendered].title());
                     rendered += 1;
                 } else if !closed {
@@ -370,7 +411,14 @@ mod native_tests {
                         target,
                         &Event::UserEvent(UserEvent::OpenWindow("Native GUI test")),
                     );
+                    assert!(framework.running.as_ref().unwrap().test_frame.is_none());
                     framework.paint();
+                    let running = framework.running.as_mut().unwrap();
+                    let size = running.window.inner_size();
+                    assert_rendered_frame(
+                        running.test_frame.take(),
+                        [size.width as usize, size.height as usize],
+                    );
                     reopened = true;
                 } else {
                     framework.close_window();

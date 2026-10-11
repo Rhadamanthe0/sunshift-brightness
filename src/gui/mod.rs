@@ -55,6 +55,9 @@ struct WgpuWinitRunning {
     egui_ctx: egui::Context,
     pending_full_output: egui::FullOutput,
     egui_winit: egui_winit::State,
+    // Une capture réussie est la preuve du rendu ; None peut signifier frame sautée.
+    #[cfg(all(test, target_os = "windows"))]
+    test_frame: Option<egui::ColorImage>,
 }
 
 impl Drop for WgpuWinitRunning {
@@ -69,6 +72,9 @@ pub struct WgpuWinitApp<F> {
     icon: Icon,
     app_factory: F,
     start_minimised: bool,
+    // Sélection privée du test natif : aucune option dans le binaire livré.
+    #[cfg(test)]
+    test_backend: Option<egui_wgpu::wgpu::Backends>,
 }
 
 impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
@@ -88,6 +94,8 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
             icon,
             app_factory,
             start_minimised,
+            #[cfg(test)]
+            test_backend: None,
         }
     }
 
@@ -112,8 +120,11 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
         // de la surface (fenêtre blanche quelques secondes puis fermeture sèche, sans
         // panic Rust). On force donc Vulkan, avec repli OpenGL, pour ne jamais
         // emprunter le chemin D3D12.
+        let supported_backends = egui_wgpu::wgpu::Backends::VULKAN | egui_wgpu::wgpu::Backends::GL;
+        #[cfg(test)]
+        let supported_backends = self.test_backend.unwrap_or(supported_backends);
         let wgpu_config = egui_wgpu::WgpuConfiguration {
-            supported_backends: egui_wgpu::wgpu::Backends::VULKAN | egui_wgpu::wgpu::Backends::GL,
+            supported_backends,
             power_preference: PowerPreference::LowPower,
             ..Default::default()
         };
@@ -167,6 +178,8 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
             egui_ctx,
             pending_full_output: Default::default(),
             egui_winit,
+            #[cfg(all(test, target_os = "windows"))]
+            test_frame: None,
         });
 
         NextPaint::RepaintNext
@@ -223,13 +236,19 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
             let clear_color =
                 egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32();
 
-            running.painter.paint_and_update_textures(
+            let _frame = running.painter.paint_and_update_textures(
                 running.egui_ctx.pixels_per_point(),
                 clear_color,
                 &clipped_primitives,
                 &textures_delta,
-                false,
+                cfg!(all(test, target_os = "windows")),
             );
+            #[cfg(all(test, target_os = "windows"))]
+            {
+                // Remplacer même par None : une ancienne capture ne vaut pas
+                // preuve du dernier appel, ni de la fenêtre rouverte.
+                running.test_frame = _frame;
+            }
 
             if repaint_after.is_zero() {
                 NextPaint::RepaintNext
@@ -339,5 +358,43 @@ fn visuals_from_winit_theme(theme: winit::window::Theme) -> egui::Visuals {
     match theme {
         winit::window::Theme::Dark => egui::Visuals::dark(),
         winit::window::Theme::Light => egui::Visuals::light(),
+    }
+}
+
+// Sélecteur commun aux essais Linux et au test GUI Windows ; absent du produit.
+#[cfg(test)]
+fn ci_test_backend(name: &str) -> (egui_wgpu::wgpu::Backends, egui_wgpu::wgpu::Backend) {
+    match name {
+        "vulkan" => (
+            egui_wgpu::wgpu::Backends::VULKAN,
+            egui_wgpu::wgpu::Backend::Vulkan,
+        ),
+        "opengl" => (egui_wgpu::wgpu::Backends::GL, egui_wgpu::wgpu::Backend::Gl),
+        _ => panic!("Unknown native GUI test backend: {name}"),
+    }
+}
+
+#[cfg(test)]
+mod ci_backend_tests {
+    use super::ci_test_backend;
+    use egui_wgpu::wgpu::{Backend, Backends};
+
+    #[test]
+    fn vulkan_excludes_other_backends() {
+        assert_eq!(
+            ci_test_backend("vulkan"),
+            (Backends::VULKAN, Backend::Vulkan)
+        );
+    }
+
+    #[test]
+    fn opengl_excludes_other_backends() {
+        assert_eq!(ci_test_backend("opengl"), (Backends::GL, Backend::Gl));
+    }
+
+    #[test]
+    #[should_panic(expected = "Unknown native GUI test backend")]
+    fn unknown_backend_is_refused() {
+        ci_test_backend("dx12");
     }
 }
