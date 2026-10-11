@@ -161,10 +161,26 @@ jobs:
             $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-nsis-3.11'
             $ready = Join-Path $directory '.ready'
             if (-not (Test-Path $ready)) {
-              Invoke-WebRequest -UseBasicParsing -Uri 'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip' -OutFile $archive -TimeoutSec 300
-              if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1') {
-                throw 'NSIS archive checksum mismatch.'
+              # Le téléchargement SourceForge peut renvoyer un fichier différent.
+              # Le miroir contient les mêmes octets : l'empreinte reste obligatoire.
+              $verified = $false
+              foreach ($uri in @(
+                'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip',
+                'https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip'
+              )) {
+                try {
+                  Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive -TimeoutSec 300 -ErrorAction Stop
+                  $checksum = (Get-FileHash $archive -Algorithm SHA256).Hash
+                  if ($checksum -eq 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1') {
+                    $verified = $true
+                    break
+                  }
+                  Write-Warning "NSIS archive checksum mismatch: $checksum"
+                } catch {
+                  Write-Warning "Unable to download NSIS: $($_.Exception.Message)"
+                }
               }
+              if (-not $verified) { throw 'Unable to download the verified NSIS archive.' }
               if (Test-Path "$env:SystemRoot\System32\tar.exe") {
                 New-Item -ItemType Directory -Path $directory -Force | Out-Null
                 & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $directory
