@@ -55,6 +55,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Diagnostic temporaire Vulkan avant compilation
+        run: python ./installer/diagnose_windows_vulkan.py
+
       - name: Prepare isolated Rust toolchain
         run: |
           $ProgressPreference = 'SilentlyContinue'
