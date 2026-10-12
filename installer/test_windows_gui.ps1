@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch] $PrepareOnly,
     [ValidateSet('Vulkan', 'OpenGL')]
     [string] $Backend = 'Vulkan'
@@ -41,7 +41,7 @@ if ($PrepareOnly) {
 $glesDirectory = 'C:\RhadaCI\graphics\gles'
 $vulkanDirectory = 'C:\RhadaCI\graphics\vulkan'
 $vulkanIcd = Join-Path $vulkanDirectory 'vk_swiftshader_icd.json'
-$glesLibraries = @()
+$graphicsLibraries = @()
 # Un backend explicite est une preuve CI sur SwiftShader, sans repli système.
 # Sans sélection, garder le test naturel sur les pilotes de la machine.
 $required = @()
@@ -58,12 +58,15 @@ foreach ($file in $required) {
     }
 }
 if ($backendName -eq 'opengl') {
-    $glesLibraries = @(Get-ChildItem -LiteralPath $glesDirectory -Filter '*.dll' -File)
+    $graphicsLibraries = @(Get-ChildItem -LiteralPath $glesDirectory -Filter '*.dll' -File)
+} elseif ($backendName -eq 'vulkan') {
+    # PATH ne remplace pas un loader trouvé dans System32 : utiliser celui vérifié.
+    $graphicsLibraries = @(Get-ChildItem -LiteralPath $vulkanDirectory -Filter '*.dll' -File)
 }
 $session = (Get-Process -Id $PID).SessionId
 Write-Output "GUI test runner session: $session"
 if ($session -ne 0) {
-    foreach ($library in $glesLibraries) {
+    foreach ($library in $graphicsLibraries) {
         Copy-Item -LiteralPath $library.FullName -Destination (Split-Path $executable)
     }
     $previousBackend = $env:SSB_TEST_GUI_BACKEND
@@ -129,7 +132,7 @@ try {
     }
     Set-Acl -LiteralPath $directory -AclObject $acl
     Copy-Item -LiteralPath $executable -Destination $binary
-    foreach ($library in $glesLibraries) {
+    foreach ($library in $graphicsLibraries) {
         Copy-Item -LiteralPath $library.FullName -Destination $directory
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -Destination $diagnostics

@@ -285,6 +285,13 @@ mod native_tests {
     #[test]
     #[ignore = "Requires an interactive Windows desktop; run explicitly for each Vulkan/OpenGL backend"]
     fn native_windows_gui_lifecycle() {
+        // Le test doit exposer les échecs d'initialisation du pilote CI.
+        let _ = simplelog::TermLogger::init(
+            log::LevelFilter::Debug,
+            simplelog::Config::default(),
+            simplelog::TerminalMode::Stderr,
+            simplelog::ColorChoice::Never,
+        );
         // Variable lue seulement par ce test ignoré ; aucun repli vers l'autre
         // API ne doit donner une fausse preuve de rendu (migration MINIPC).
         let requested = std::env::var("SSB_TEST_GUI_BACKEND").ok();
