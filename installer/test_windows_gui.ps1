@@ -67,14 +67,20 @@ if ($backendName -eq 'opengl') {
 $session = (Get-Process -Id $PID).SessionId
 Write-Output "GUI test runner session: $session"
 if ($session -ne 0) {
-    foreach ($library in $graphicsLibraries) {
-        Copy-VerifiedGraphicsLibrary -Source $library.FullName -DestinationDirectory (Split-Path $executable)
-    }
+    # Vulkan et OpenGL peuvent fournir deux vk_swiftshader.dll différentes.
+    # Chaque invocation garde ses DLL privées, comme le chemin en session 0.
+    $fixture = Join-Path ([IO.Path]::GetTempPath()) ('ssb-gui-' + [guid]::NewGuid().ToString('N'))
+    $privateExecutable = Join-Path $fixture (Split-Path $executable -Leaf)
     $previousBackend = $env:SSB_TEST_GUI_BACKEND
     $previousIcd = $env:VK_ICD_FILENAMES
     $previousPath = $env:PATH
     $previousAngle = $env:ANGLE_DEFAULT_PLATFORM
     try {
+        New-Item -ItemType Directory -Path $fixture -ErrorAction Stop | Out-Null
+        Copy-Item -LiteralPath $executable -Destination $privateExecutable -ErrorAction Stop
+        foreach ($library in $graphicsLibraries) {
+            Copy-VerifiedGraphicsLibrary -Source $library.FullName -DestinationDirectory $fixture
+        }
         $env:SSB_TEST_GUI_BACKEND = if ($backendName) { $backendName } else { $null }
         if ($backendName -eq 'vulkan') {
             $env:VK_ICD_FILENAMES = $vulkanIcd
@@ -82,13 +88,16 @@ if ($session -ne 0) {
         } elseif ($backendName -eq 'opengl') {
             $env:ANGLE_DEFAULT_PLATFORM = 'swiftshader'
         }
-        & $executable $filter --exact --ignored --nocapture --test-threads=1
+        & $privateExecutable $filter --exact --ignored --nocapture --test-threads=1
         if ($LASTEXITCODE -ne 0) { throw 'Native GUI lifecycle failed.' }
     } finally {
         $env:SSB_TEST_GUI_BACKEND = $previousBackend
         $env:VK_ICD_FILENAMES = $previousIcd
         $env:PATH = $previousPath
         $env:ANGLE_DEFAULT_PLATFORM = $previousAngle
+        if (Test-Path -LiteralPath $fixture) {
+            Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction Stop
+        }
     }
     & (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -CheckBrightness:($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1')
     return
