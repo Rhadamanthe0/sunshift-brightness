@@ -4,6 +4,7 @@
     [string] $Backend = 'Vulkan'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'copy_graphics_library.ps1')
 $backendName = if ($PSBoundParameters.ContainsKey('Backend')) { $Backend.ToLowerInvariant() } else { '' }
 $filter = 'gui::app::native_tests::native_windows_gui_lifecycle'
 $executable = $env:SSB_GUI_TEST_EXECUTABLE
@@ -67,7 +68,7 @@ $session = (Get-Process -Id $PID).SessionId
 Write-Output "GUI test runner session: $session"
 if ($session -ne 0) {
     foreach ($library in $graphicsLibraries) {
-        Copy-Item -LiteralPath $library.FullName -Destination (Split-Path $executable)
+        Copy-VerifiedGraphicsLibrary -Source $library.FullName -DestinationDirectory (Split-Path $executable)
     }
     $previousBackend = $env:SSB_TEST_GUI_BACKEND
     $previousIcd = $env:VK_ICD_FILENAMES
@@ -133,7 +134,7 @@ try {
     Set-Acl -LiteralPath $directory -AclObject $acl
     Copy-Item -LiteralPath $executable -Destination $binary
     foreach ($library in $graphicsLibraries) {
-        Copy-Item -LiteralPath $library.FullName -Destination $directory
+        Copy-VerifiedGraphicsLibrary -Source $library.FullName -DestinationDirectory $directory
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -Destination $diagnostics
     $gcc = Get-Command gcc.exe -ErrorAction SilentlyContinue
