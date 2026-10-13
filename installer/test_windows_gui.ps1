@@ -49,6 +49,8 @@ $required = @()
 if ($backendName -eq 'opengl') {
     $required = @('libEGL.dll', 'libGLESv2.dll', 'vk_swiftshader.dll') |
         ForEach-Object { Join-Path $glesDirectory $_ }
+    $required += Join-Path $vulkanDirectory 'vulkan-1.dll'
+    $required += Join-Path $PSScriptRoot 'vk_swiftshader_icd.json'
 } elseif ($backendName -eq 'vulkan') {
     $required = @('vk_swiftshader_icd.json', 'vulkan-1.dll', 'vk_swiftshader.dll') |
         ForEach-Object { Join-Path $vulkanDirectory $_ }
@@ -60,6 +62,10 @@ foreach ($file in $required) {
 }
 if ($backendName -eq 'opengl') {
     $graphicsLibraries = @(Get-ChildItem -LiteralPath $glesDirectory -Filter '*.dll' -File)
+    # ANGLE 137 charge vulkan-1.dll et cherche son ICD auprès de libEGL.
+    # Conserver le pilote GLES 137 ; seul le chargeur vérifié est partagé.
+    $graphicsLibraries += Get-Item -LiteralPath (Join-Path $vulkanDirectory 'vulkan-1.dll')
+    $graphicsLibraries += Get-Item -LiteralPath (Join-Path $PSScriptRoot 'vk_swiftshader_icd.json')
 } elseif ($backendName -eq 'vulkan') {
     # PATH ne remplace pas un loader trouvé dans System32 : utiliser celui vérifié.
     $graphicsLibraries = @(Get-ChildItem -LiteralPath $vulkanDirectory -Filter '*.dll' -File)
@@ -87,6 +93,7 @@ if ($session -ne 0) {
             $env:PATH = "$vulkanDirectory;$env:PATH"
         } elseif ($backendName -eq 'opengl') {
             $env:ANGLE_DEFAULT_PLATFORM = 'swiftshader'
+            $env:VK_ICD_FILENAMES = Join-Path $fixture 'vk_swiftshader_icd.json'
         }
         & $privateExecutable $filter --exact --ignored --nocapture --test-threads=1
         if ($LASTEXITCODE -ne 0) { throw 'Native GUI lifecycle failed.' }
@@ -158,6 +165,7 @@ try {
     $dllLiteral = $dllPath.Replace("'", "''")
     $diagnosticsLiteral = $diagnostics.Replace("'", "''")
     $diagnosticOutputLiteral = $diagnosticOutput.Replace("'", "''")
+    $glesIcdLiteral = (Join-Path $directory 'vk_swiftshader_icd.json').Replace("'", "''")
     $checkBrightness = if ($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1') { '-CheckBrightness' } else { '' }
     $command = @"
 `$env:PATH = '$dllLiteral;' + `$env:PATH
@@ -167,6 +175,7 @@ if ('$backendName' -eq 'vulkan') {
     `$env:PATH = '$vulkanDirectory;' + `$env:PATH
 } elseif ('$backendName' -eq 'opengl') {
     `$env:ANGLE_DEFAULT_PLATFORM = 'swiftshader'
+    `$env:VK_ICD_FILENAMES = '$glesIcdLiteral'
 }
 `$process = Start-Process -FilePath '$binaryLiteral' -ArgumentList '$filter', '--exact', '--ignored', '--nocapture', '--test-threads=1' -NoNewWindow -Wait -PassThru -RedirectStandardOutput '$outputLiteral' -RedirectStandardError '$errorLiteral'
 `$result = `$process.ExitCode
