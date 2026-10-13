@@ -282,6 +282,105 @@ mod native_tests {
         );
     }
 
+
+    // OpenGL cannot use wgpu's surface readback; verify the native presented window.
+    fn capture_opengl_frame(
+        window: &egui_winit::winit::window::Window,
+    ) -> Option<egui::ColorImage> {
+        use egui_winit::winit::platform::windows::WindowExtWindows;
+        use windows::Win32::Foundation::{HANDLE, HWND};
+        use windows::Win32::Graphics::Gdi::{
+            BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, GetDC,
+            ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+            SRCCOPY,
+        };
+
+        let size = window.inner_size();
+        let width = i32::try_from(size.width).ok()?;
+        let height = i32::try_from(size.height).ok()?;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        // Negative height makes the pixel buffer top-down BGRA.
+        let bitmap_info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let hwnd = HWND(window.hwnd() as isize);
+        unsafe {
+            let window_dc = GetDC(hwnd);
+            if window_dc.0 == 0 {
+                return None;
+            }
+            let memory_dc = CreateCompatibleDC(window_dc);
+            let captured = (|| {
+                if memory_dc.0 == 0 {
+                    return None;
+                }
+                let mut bits = std::ptr::null_mut();
+                let bitmap = CreateDIBSection(
+                    memory_dc,
+                    &bitmap_info,
+                    DIB_RGB_COLORS,
+                    &mut bits,
+                    HANDLE(0),
+                    0,
+                )
+                .ok()?;
+                let previous = SelectObject(memory_dc, HGDIOBJ(bitmap.0));
+                let pixels = (|| {
+                    if previous.0 == 0 || previous.0 == -1 {
+                        return None;
+                    }
+                    BitBlt(memory_dc, 0, 0, width, height, window_dc, 0, 0, SRCCOPY).ok()?;
+                    if !GdiFlush().as_bool() || bits.is_null() {
+                        return None;
+                    }
+                    let bytes = std::slice::from_raw_parts(
+                        bits.cast::<u8>(),
+                        size.width as usize * size.height as usize * 4,
+                    );
+                    Some(egui::ColorImage {
+                        size: [size.width as usize, size.height as usize],
+                        pixels: bytes
+                            .chunks_exact(4)
+                            .map(|pixel| egui::Color32::from_rgb(pixel[2], pixel[1], pixel[0]))
+                            .collect(),
+                    })
+                })();
+                if previous.0 != 0 && previous.0 != -1 {
+                    SelectObject(memory_dc, previous);
+                }
+                DeleteObject(HGDIOBJ(bitmap.0));
+                pixels
+            })();
+            if memory_dc.0 != 0 {
+                DeleteDC(memory_dc);
+            }
+            ReleaseDC(hwnd, window_dc);
+            captured
+        }
+    }
+
+    fn assert_native_frame(running: &mut crate::gui::WgpuWinitRunning) {
+        let backend = running.painter.render_state().unwrap().adapter.get_info().backend;
+        let frame = if backend == egui_wgpu::wgpu::Backend::Gl {
+            capture_opengl_frame(&running.window)
+        } else {
+            running.test_frame.take()
+        };
+        let size = running.window.inner_size();
+        assert_rendered_frame(frame, [size.width as usize, size.height as usize]);
+    }
+
     #[test]
     #[ignore = "Requires an interactive Windows desktop; run explicitly for each Vulkan/OpenGL backend"]
     fn native_windows_gui_lifecycle() {
@@ -384,7 +483,7 @@ mod native_tests {
                             backend, expected,
                             "Requested rendering API was not obtained"
                         );
-                        // wgpu-hal 0.16 infère le type GL depuis le renderer.
+                        // wgpu-hal infère le type GL depuis le renderer.
                         // Le nom SwiftShader approuvé prouve le pilote logiciel,
                         // sans supposer un DeviceType universel à travers les API.
                         assert!(
@@ -402,12 +501,7 @@ mod native_tests {
                     // Save against the real configuration during this test.
                     let _ = running.egui_winit.take_egui_input(&running.window);
                     framework.paint();
-                    let running = framework.running.as_mut().unwrap();
-                    let size = running.window.inner_size();
-                    assert_rendered_frame(
-                        running.test_frame.take(),
-                        [size.width as usize, size.height as usize],
-                    );
+                    assert_native_frame(framework.running.as_mut().unwrap());
                     eprintln!("Rendered {} with {backend:?}", pages[rendered].title());
                     rendered += 1;
                 } else if !closed {
@@ -420,12 +514,7 @@ mod native_tests {
                     );
                     assert!(framework.running.as_ref().unwrap().test_frame.is_none());
                     framework.paint();
-                    let running = framework.running.as_mut().unwrap();
-                    let size = running.window.inner_size();
-                    assert_rendered_frame(
-                        running.test_frame.take(),
-                        [size.width as usize, size.height as usize],
-                    );
+                    assert_native_frame(framework.running.as_mut().unwrap());
                     reopened = true;
                 } else {
                     framework.close_window();

@@ -218,7 +218,7 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
                 shapes,
             } = full_output;
 
-            // Use the maintained URL launcher; egui-winit 0.22's optional
+            // Use the maintained URL launcher; egui-winit's optional
             // launcher depends on a version with unsafe BROWSER tokenization.
             if let Some(open_url) = platform_output.open_url.take() {
                 if let Err(e) = webbrowser::open(&open_url.url) {
@@ -236,12 +236,21 @@ impl<F: Fn() -> SsbEguiApp> WgpuWinitApp<F> {
             let clear_color =
                 egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32();
 
+            // egui-wgpu 0.23 cannot capture frames via the OpenGL surface.
+            // The native Windows test reads the displayed pixels via GDI instead.
+            #[cfg(all(test, target_os = "windows"))]
+            let capture = running.painter.render_state().is_some_and(|state| {
+                state.adapter.get_info().backend != egui_wgpu::wgpu::Backend::Gl
+            });
+            #[cfg(not(all(test, target_os = "windows")))]
+            let capture = false;
+
             let _frame = running.painter.paint_and_update_textures(
                 running.egui_ctx.pixels_per_point(),
                 clear_color,
                 &clipped_primitives,
                 &textures_delta,
-                cfg!(all(test, target_os = "windows")),
+                capture,
             );
             #[cfg(all(test, target_os = "windows"))]
             {

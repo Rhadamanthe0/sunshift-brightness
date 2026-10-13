@@ -40,7 +40,10 @@ puis une restauration lors d'un job suivant.
 La préparation approuvée fournit Vulkan SwiftShader et OpenGL ES via EGL/ANGLE logiciel
 sur CPU. Les deux passes GUI natives demandent explicitement Vulkan et OpenGL,
 vérifient le backend réellement sélectionné et refusent un repli vers l'autre
-API. Le rendu logiciel ne prouve pas le support d'un GPU ou moniteur physique.
+API. La capture Vulkan utilise la relecture GPU ; la capture OpenGL sous
+egui-wgpu 0.23 lit les pixels de la fenêtre Windows via GDI. Chaque page et
+la fenêtre rouverte doivent produire une image non uniforme. Le rendu logiciel
+ne prouve pas le support d'un GPU ou moniteur physique.
 La passe OpenGL conserve les DLL ANGLE/SwiftShader 137 ensemble et copie aussi
 le chargeur vérifié `vulkan-1.dll` dans son dossier privé. Son manifeste
 `installer/vk_swiftshader_icd.json` provient de Chrome for Testing
