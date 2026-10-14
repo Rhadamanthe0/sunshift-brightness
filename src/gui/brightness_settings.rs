@@ -3,8 +3,7 @@ use crate::config::{Location, SsbConfig};
 use crate::controller::Message;
 use crate::gui::app::{save_config, AppState, Page, SPACING};
 use chrono::{Duration, DurationRound, TimeZone};
-use egui::plot::{uniform_grid_spacer, GridInput, GridMark, Line, PlotBounds};
-use egui::widgets::plot::Plot;
+use egui_plot::{uniform_grid_spacer, GridInput, GridMark, Line, Plot, PlotBounds};
 use std::mem::take;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use validator::Validate;
@@ -182,7 +181,7 @@ impl BrightnessSettingsPage {
                 .allow_zoom(false)
                 .allow_scroll(false)
                 .y_grid_spacer(uniform_grid_spacer(|_| [100.0, 20.0, 10.0]))
-                .y_axis_formatter(|val, _| format!("{}%", val))
+                .y_axis_formatter(|val, _, _| format!("{}%", val))
                 .x_grid_spacer(x_grid_spacer)
                 .label_formatter(|name, point| {
                     if name == LINE_NAME {
@@ -191,7 +190,7 @@ impl BrightnessSettingsPage {
                         String::new()
                     }
                 })
-                .x_axis_formatter(|val, _| convert_time(val))
+                .x_axis_formatter(|val, _, _| convert_time(val))
                 .show(ui, |plot_ui| {
                     plot_ui.set_plot_bounds(PlotBounds::from_min_max([first, -5.0], [last, 105.0]));
                     plot_ui.line(line)
