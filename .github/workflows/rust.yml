@@ -1,7 +1,10 @@
 name: Rust Build
 
+# Une seule CI par mise à jour de PR ; les tags conservent le chemin de publication.
 on:
   push:
+    branches: [master]
+    tags: ['**']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -146,8 +149,9 @@ jobs:
           key: windows-gnu-mingw-16.2.0posix-14.0.0-ucrt-r2
           workspaces: ". -> ${{ env.CARGO_CACHE_TARGET }}"
           cache-bin: false
-          # Conserver les dépendances compilées même si un test GUI échoue ensuite.
-          cache-on-failure: true
+          # Eviter de reconditionner un cache volumineux apres un echec Windows.
+          # Le cache reste restaure ; les executions reussies continuent a le publier.
+          cache-on-failure: false
 
       - name: Cargo Test
         run: cargo test --locked
