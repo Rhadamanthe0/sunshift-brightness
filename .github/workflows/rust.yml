@@ -1,10 +1,10 @@
 name: Rust Build
 
-# Une seule CI par mise à jour de PR ; les tags conservent le chemin de publication.
+# Une seule CI par PR ; les tags de version sont autorises par la politique JIT.
 on:
   push:
     branches: [master]
-    tags: ['**']
+    tags: ['v[0-9]*']
   pull_request:
   workflow_dispatch:
     inputs:
