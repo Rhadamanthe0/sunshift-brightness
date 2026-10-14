@@ -142,6 +142,45 @@ jobs:
             }
           }
 
+      # La VM jetable disposait de GNU tar mais retombait sur gzip ; 1 Gio
+      # de cache Rust a nécessité 17 min d'extraction. Zstd est optionnel.
+      - name: Enable fast Windows Cargo cache compression
+        run: |
+          $available = Get-Command zstd.exe -ErrorAction SilentlyContinue
+          if ($available) {
+            & $available.Source --version
+            if ($LASTEXITCODE -ne 0) { throw 'Existing zstd.exe failed its version check' }
+          } else {
+            $archive = Join-Path $env:RUNNER_TEMP 'ssb-zstd-1.5.7.zip'
+            $directory = Join-Path $env:RUNNER_TEMP 'ssb-zstd-1.5.7'
+            try {
+              $uri = 'https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-v1.5.7-win64.zip'
+              Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive -TimeoutSec 120
+              $expected = 'a96dc5417943c03fa231bf2d6a586b7ae7254fa52fdc15d302f296b5ff88e1ff0f07120a720149eb82ea0f0c65444393ebf05d2ee1bd1db341b803ff65a2e675'
+              if ((Get-FileHash -LiteralPath $archive -Algorithm SHA512).Hash.ToLowerInvariant() -ne $expected) {
+                throw 'Zstandard SHA-512 mismatch: executable refused'
+              }
+              Expand-Archive -LiteralPath $archive -DestinationPath $directory -Force
+              # L'archive officielle peut contenir une seconde archive ZIP.
+              $nested = @(Get-ChildItem -LiteralPath $directory -File -Recurse -Filter '*.zip')
+              if ($nested.Count -gt 1) { throw 'Unexpected multiple nested Zstandard archives' }
+              if ($nested.Count -eq 1) {
+                Expand-Archive -LiteralPath $nested[0].FullName -DestinationPath (Join-Path $directory 'inner') -Force
+              }
+              $binaries = @(Get-ChildItem -LiteralPath $directory -Recurse -File -Filter 'zstd.exe')
+              if ($binaries.Count -ne 1) { throw "Expected one zstd.exe, found $($binaries.Count)" }
+              & $binaries[0].FullName --version
+              if ($LASTEXITCODE -ne 0) { throw 'Verified zstd.exe failed to start' }
+              $binaryDir = Split-Path -Parent $binaries[0].FullName
+              [IO.File]::AppendAllText($env:GITHUB_PATH, $binaryDir + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+              Write-Output '[ci] Verified Zstandard enabled for Cargo cache'
+            } catch {
+              # Une panne du téléchargement n'empêche pas les tests : repli gzip.
+              # Jamais d'exécution du binaire si l'empreinte est incorrecte.
+              Write-Warning "[ci] Zstandard unavailable; keep gzip: $($_.Exception.Message)"
+            }
+          }
+
       - name: Cache Windows Cargo dependencies
         uses: Swatinem/rust-cache@v2
         with:
