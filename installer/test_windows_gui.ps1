@@ -216,4 +216,8 @@ exit `$result
     if (Test-Path $output) { Get-Content -LiteralPath $output -Encoding UTF8 }
     if (Test-Path $errorOutput) { Get-Content -LiteralPath $errorOutput -Encoding UTF8 }
     if (Test-Path $diagnosticOutput) { Get-Content -LiteralPath $diagnosticOutput -Encoding Unicode }
+    # The service/interactive path must clean up its executable, libraries and logs.
+    if (Test-Path -LiteralPath $directory) {
+        Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction Stop
+    }
 }
