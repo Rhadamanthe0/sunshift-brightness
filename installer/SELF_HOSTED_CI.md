@@ -31,11 +31,14 @@ La clé distingue Windows GNU et la version MinGW, puis inclut automatiquement
 la version de Rust, les manifestes et `Cargo.lock`. Le dossier cible situé dans
 `RUNNER_TOOL_CACHE` est explicitement déclaré relativement au checkout. Les
 règles de portée GitHub isolent les caches des PR ; une PR ne peut pas remplacer
-le cache de la branche principale. Les dépendances sont sauvegardées seulement si le job Windows réussit :
-aucune compression ni publication du cache après un échec de test. Le premier
-passage reste une compilation à froid ;
-les suivants peuvent réutiliser les dépendances, mais recompilent le projet et
-refont l'édition de liens. La validation native doit confirmer la sauvegarde,
+le cache de la branche principale. Les dépendances ne sont sauvegardées
+que si le job Windows réussit : aucune compression du cache après un échec.
+Avant restauration, le workflow recherche Zstandard, puis peut télécharger sa
+version 1.5.7 avec contrôle SHA-512. En cas d'indisponibilité, le cache conserve
+le mode gzip. Un changement de méthode de compression produit une autre version
+de cache GitHub : le premier passage avec Zstandard peut donc être à froid.
+Les suivants peuvent réutiliser les dépendances, mais recompilent le projet et
+refont l'édition de liens. La validation native doit confirmer une sauvegarde,
 puis une restauration lors d'un job suivant.
 
 La préparation approuvée fournit Vulkan SwiftShader et OpenGL ES via EGL/ANGLE logiciel
