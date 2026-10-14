@@ -292,16 +292,6 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      # Diagnostic temporaire : Cargo seul calcule la correction du lockfile.
-      # Ne jamais desactiver --locked pour un test de validation.
-      - name: Diagnose Cargo.lock
-        run: |
-          if ! cargo metadata --locked --format-version 1 --no-deps >/dev/null; then
-            cargo metadata --format-version 1 --no-deps >/dev/null
-            git diff -- Cargo.lock
-            exit 1
-          fi
-
       - name: Cargo Test
         run: cargo test --locked
 
