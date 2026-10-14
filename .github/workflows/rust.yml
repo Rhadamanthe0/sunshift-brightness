@@ -1,6 +1,6 @@
 name: Rust Build
 
-# Une seule CI par PR ; les tags de version sont autorises par la politique JIT.
+# Une seule CI par PR ; les tags de version conservent leur publication.
 on:
   push:
     branches: [master]
@@ -149,8 +149,7 @@ jobs:
           key: windows-gnu-mingw-16.2.0posix-14.0.0-ucrt-r2
           workspaces: ". -> ${{ env.CARGO_CACHE_TARGET }}"
           cache-bin: false
-          # Eviter de reconditionner un cache volumineux apres un echec Windows.
-          # Le cache reste restaure ; les executions reussies continuent a le publier.
+          # Conserver les dépendances compilées même si un test GUI échoue ensuite.
           cache-on-failure: false
 
       - name: Cargo Test
@@ -319,6 +318,17 @@ jobs:
           toolchain: stable
           components: rustfmt
 
+      - name: Diagnose dependency lock (temporary)
+        shell: bash
+        run: |
+          # Resolve the full dependency graph, including target-specific crates.
+          # --no-deps would not sufficiently exercise the broken lockfile.
+          if ! cargo metadata --locked --format-version 1 >/dev/null; then
+            echo 'Cargo.lock differs from the Cargo resolver result:'
+            cargo metadata --format-version 1 >/dev/null
+            git diff -- Cargo.lock
+            exit 1
+          fi
       - name: Cargo Format
         run: cargo fmt -- --check
 
