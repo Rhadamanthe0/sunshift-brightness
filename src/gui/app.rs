@@ -163,7 +163,13 @@ impl SsbEguiApp {
 
     pub fn update(&mut self, ctx: &egui::Context) {
         let queue = self.context.transitions.0.clone();
-        while let Some(transition) = queue.lock().unwrap().pop_front() {
+        loop {
+            // Drop the queue lock before running callbacks, which may enqueue
+            // further transitions themselves.
+            let transition = { queue.lock().unwrap().pop_front() };
+            let Some(transition) = transition else {
+                break;
+            };
             (transition)(self);
         }
 

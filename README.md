@@ -18,10 +18,6 @@ Automatically and smoothly adjusts monitor brightness based on the sunrise/sunse
 > by **Jacob Halsey** ([jacob-pro](https://github.com/jacob-pro)), licensed under **LGPL-3.0**. All credit for the
 > original application goes to the original author; this fork only adds the Sunrise/Sunset Advance feature.
 
-> #### New 2.0 Release! 
-> 
-> I am pleased to announce a new 2.0 version with a modernised UI, new features, and bug fixes!
-
 ## About
 
 ### What is this for?
