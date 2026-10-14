@@ -282,7 +282,6 @@ mod native_tests {
         );
     }
 
-
     // OpenGL cannot use wgpu's surface readback; verify the native presented window.
     fn capture_opengl_frame(
         window: &egui_winit::winit::window::Window,
@@ -371,7 +370,13 @@ mod native_tests {
     }
 
     fn assert_native_frame(running: &mut crate::gui::WgpuWinitRunning) {
-        let backend = running.painter.render_state().unwrap().adapter.get_info().backend;
+        let backend = running
+            .painter
+            .render_state()
+            .unwrap()
+            .adapter
+            .get_info()
+            .backend;
         let frame = if backend == egui_wgpu::wgpu::Backend::Gl {
             capture_opengl_frame(&running.window)
         } else {
