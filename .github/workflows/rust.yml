@@ -315,6 +315,15 @@ jobs:
           toolchain: stable
           components: rustfmt
 
+      - name: Diagnose dependency lock (temporary)
+        shell: bash
+        run: |
+          if ! cargo metadata --locked --no-deps --format-version 1 >/dev/null; then
+            echo 'Cargo.lock differs from the Cargo resolver result:'
+            cargo metadata --no-deps --format-version 1 >/dev/null
+            git diff -- Cargo.lock
+            exit 1
+          fi
       - name: Cargo Format
         run: cargo fmt -- --check
 
