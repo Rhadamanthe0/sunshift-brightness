@@ -20,7 +20,7 @@ réseau domestique. L'enveloppe CPU et mémoire CI reste partagée avec Linux.
 Le guest requiert Git, Windows PowerShell et un bureau Windows interactif.
 Le workflow prépare Rust stable GNU et Clippy dans son cache local, puis vérifie
 ou télécharge MinGW portable (`gcc`, `dlltool`, `windres`) et NSIS (`makensis`).
-Les archives sont figées et vérifiées par SHA-256. Cette chaîne GNU n'exige ni
+Les archives sont figées et vérifiées par SHA-256, ou SHA-512 pour Zstandard. Cette chaîne GNU n'exige ni
 MSVC Build Tools, ni CMake, ni Chocolatey. Les outils restent dans la VM jetable. Les dépendances Cargo téléchargées et
 compilées (debug et release) sont sauvegardées dans le cache GitHub Actions par
 `Swatinem/rust-cache`, puis restaurées dans chaque nouvelle VM. Aucun disque
