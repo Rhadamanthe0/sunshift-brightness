@@ -31,8 +31,9 @@ La clé distingue Windows GNU et la version MinGW, puis inclut automatiquement
 la version de Rust, les manifestes et `Cargo.lock`. Le dossier cible situé dans
 `RUNNER_TOOL_CACHE` est explicitement déclaré relativement au checkout. Les
 règles de portée GitHub isolent les caches des PR ; une PR ne peut pas remplacer
-le cache de la branche principale. Les dépendances sont sauvegardées même si
-un test ultérieur échoue. Le premier passage reste une compilation à froid ;
+le cache de la branche principale. Les dépendances sont sauvegardées uniquement après réussite des validations :
+un échec doit publier ses diagnostics sans attendre la compression du cache.
+Le premier passage reste une compilation à froid ;
 les suivants peuvent réutiliser les dépendances, mais recompilent le projet et
 refont l'édition de liens. La validation native doit confirmer la sauvegarde,
 puis une restauration lors d'un job suivant.

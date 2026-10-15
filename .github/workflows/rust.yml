@@ -146,8 +146,9 @@ jobs:
           key: windows-gnu-mingw-16.2.0posix-14.0.0-ucrt-r2
           workspaces: ". -> ${{ env.CARGO_CACHE_TARGET }}"
           cache-bin: false
-          # Conserver les dépendances compilées même si un test GUI échoue ensuite.
-          cache-on-failure: true
+          # Un échec doit terminer et publier ses diagnostics sans recompresser
+          # plusieurs Gio ; l'annulation du post-cache peut perdre les logs.
+          cache-on-failure: false
 
       - name: Cargo Test
         run: cargo test --locked
