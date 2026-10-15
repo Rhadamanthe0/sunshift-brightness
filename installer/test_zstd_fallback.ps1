@@ -22,7 +22,60 @@ $hashMatch = [regex]::Match($body, '\$expected = ''([a-f0-9]{128})''')
 if (-not $hashMatch.Success) { throw 'The pinned SHA-512 must remain in the workflow.' }
 $engineName = if ($PSVersionTable.PSEdition -eq 'Desktop') { 'powershell.exe' } elseif ($env:OS -eq 'Windows_NT') { 'pwsh.exe' } else { 'pwsh' }
 $engine = Join-Path $PSHOME $engineName
-$fixture = Join-Path ([IO.Path]::GetTempPath()) ('ssb-zstd-test-' + [guid]::NewGuid().ToString('N'))
+$fixture = Join-Path ([IO.Path]::GetTempPath()) ('ssb zstd test ' + [guid]::NewGuid().ToString('N'))
+# Start-Process can lose ExitCode with redirected streams on Windows PowerShell.
+# Starting the .NET Process directly retains the handle, even for an instant exit.
+function Invoke-FixtureProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [ValidateRange(1, 60000)][int]$TimeoutMilliseconds = 15000
+    )
+    $info = [Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = $engine
+    $info.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $ScriptPath + '"'
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $info
+    $started = $false
+    try {
+        $started = $process.Start()
+        if (-not $started) { throw 'Unable to start the fixture process.' }
+        # Drain both pipes concurrently; waiting first deadlocks on full buffers.
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+            throw [TimeoutException]::new("Fixture timed out: $ScriptPath")
+        }
+        $code = $process.ExitCode
+        if ($null -eq $code) { throw 'Fixture process returned no exit code.' }
+        $streams = [Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
+        if (-not [Threading.Tasks.Task]::WaitAll($streams, 5000)) {
+            throw 'Fixture output streams did not close.'
+        }
+        [pscustomobject]@{
+            ExitCode = $code
+            Stdout = $stdoutTask.GetAwaiter().GetResult()
+            Stderr = $stderrTask.GetAwaiter().GetResult()
+        }
+    } finally {
+        try {
+            if ($started -and -not $process.HasExited) {
+                try { $process.Kill() }
+                catch {
+                    # A natural exit can race the termination request.
+                    if (-not $process.HasExited) { throw }
+                }
+                if (-not $process.WaitForExit(5000)) {
+                    throw 'Fixture process did not stop after termination.'
+                }
+            }
+        } finally { $process.Dispose() }
+    }
+}
 $mock = @'
 $ErrorActionPreference = 'Stop'
 $global:LASTEXITCODE = 0
@@ -88,26 +141,38 @@ if ((Test-Path -LiteralPath variable:\LASTEXITCODE)) { exit $LASTEXITCODE }
 '@
 try {
     New-Item -ItemType Directory -Path $fixture | Out-Null
+    # Validate the harness itself: real exit codes, saturated pipes and timeout.
+    # The fixture root deliberately contains spaces to exercise argument quoting.
+    foreach ($expectedExit in @(0, 29)) {
+        $child = Join-Path $fixture "exit-$expectedExit.ps1"
+        [IO.File]::WriteAllText($child, "exit $expectedExit", [Text.UTF8Encoding]::new($true))
+        $result = Invoke-FixtureProcess -ScriptPath $child
+        if ($result.ExitCode -ne $expectedExit -or $result.Stdout -ne '' -or $result.Stderr -ne '') {
+            throw "Fixture harness lost exit code $expectedExit or returned unexpected output."
+        }
+    }
+    $child = Join-Path $fixture 'streams.ps1'
+    [IO.File]::WriteAllText($child, "[Console]::Out.Write(('O' * 131072)); [Console]::Error.Write(('E' * 131072)); exit 0", [Text.UTF8Encoding]::new($true))
+    $result = Invoke-FixtureProcess -ScriptPath $child
+    if ($result.ExitCode -ne 0 -or $result.Stdout -cne ('O' * 131072) -or $result.Stderr -cne ('E' * 131072)) {
+        throw 'Fixture harness failed to drain both output streams.'
+    }
+    $child = Join-Path $fixture 'timeout.ps1'
+    [IO.File]::WriteAllText($child, 'Start-Sleep -Seconds 60', [Text.UTF8Encoding]::new($true))
+    $timedOut = $false
+    try { $null = Invoke-FixtureProcess -ScriptPath $child -TimeoutMilliseconds 250 }
+    catch [TimeoutException] { $timedOut = $true }
+    if (-not $timedOut) { throw 'Fixture harness accepted a timed-out process.' }
     foreach ($scenario in @('download', 'hash', 'extract', 'missing', 'ambiguous', 'native', 'success', 'nested', 'existing', 'existing-failure')) {
         $directory = Join-Path $fixture $scenario
         New-Item -ItemType Directory -Path $directory | Out-Null
         $child = Join-Path $directory 'check.ps1'
         $prefix = '$scenario = ''' + $scenario + "'`n" + '$fixtureHash = ''' + $hashMatch.Groups[1].Value + "'`n"
         [IO.File]::WriteAllText($child, $prefix + $mock + "`n" + $body + "`n" + $assertions, [Text.UTF8Encoding]::new($true))
-        $out = Join-Path $directory 'stdout.txt'
-        $err = Join-Path $directory 'stderr.txt'
-        $process = Start-Process -FilePath $engine -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $child + '"')) -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
-        try {
-            # Windows PowerShell can release an unobserved process handle on exit.
-            # Pin it before waiting so ExitCode remains available on Windows 5.1.
-            $null = $process.Handle
-            if (-not $process.WaitForExit(15000)) { $process.Kill(); throw "Fixture timed out: $scenario" }
-            $process.WaitForExit()
-            $code = $process.ExitCode
-            if ($null -eq $code) { throw "Fixture exit code unavailable: $scenario" }
-        } finally { $process.Dispose() }
-        $stdout = [IO.File]::ReadAllText($out)
-        $stderr = [IO.File]::ReadAllText($err)
+        $result = Invoke-FixtureProcess -ScriptPath $child
+        $code = $result.ExitCode
+        $stdout = $result.Stdout
+        $stderr = $result.Stderr
         if ($scenario -eq 'existing-failure') {
             if ($code -eq 0 -or $stderr -notmatch 'Existing zstd.exe failed its version check') {
                 throw 'An existing broken compressor must remain a blocking failure.'
@@ -119,7 +184,7 @@ try {
             throw "Expected explicit fallback warning: $scenario"
         }
     }
-    Write-Output 'PASS: 10 offline compressor fallback scenarios.'
+    Write-Output 'PASS: 4 process harness checks and 10 offline compressor fallback scenarios.'
 } finally {
     if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
 }
