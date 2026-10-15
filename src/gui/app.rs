@@ -319,7 +319,7 @@ mod native_tests {
             },
             ..Default::default()
         };
-        let hwnd = HWND(window.hwnd() as isize);
+        let hwnd = HWND(window.hwnd());
         unsafe {
             let window_dc = GetDC(hwnd);
             if window_dc.0 == 0 {
@@ -356,7 +356,9 @@ mod native_tests {
                     Some(egui::ColorImage {
                         size: [size.width as usize, size.height as usize],
                         pixels: bytes
-                            .chunks_exact(4)
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
                             .map(|pixel| egui::Color32::from_rgb(pixel[2], pixel[1], pixel[0]))
                             .collect(),
                     })
