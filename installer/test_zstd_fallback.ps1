@@ -98,8 +98,13 @@ try {
         $err = Join-Path $directory 'stderr.txt'
         $process = Start-Process -FilePath $engine -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $child + '"')) -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
         try {
+            # Windows PowerShell can release an unobserved process handle on exit.
+            # Pin it before waiting so ExitCode remains available on Windows 5.1.
+            $null = $process.Handle
             if (-not $process.WaitForExit(15000)) { $process.Kill(); throw "Fixture timed out: $scenario" }
+            $process.WaitForExit()
             $code = $process.ExitCode
+            if ($null -eq $code) { throw "Fixture exit code unavailable: $scenario" }
         } finally { $process.Dispose() }
         $stdout = [IO.File]::ReadAllText($out)
         $stderr = [IO.File]::ReadAllText($err)
