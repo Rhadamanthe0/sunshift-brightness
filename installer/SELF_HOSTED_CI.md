@@ -1,12 +1,15 @@
 # CI sur MINIPC-CLEM
 
 Le workflow Rust Build utilise uniquement MINIPC-CLEM. Les jobs Linux de tests,
-style et publication exigent `self-hosted,linux,x64,minipc,podman`. Chaque job
+style et publication exigent `self-hosted,linux,x64,minipc,ephemeral,podman-jit-v2`. Chaque job
 Windows, y compris une PR de fork ou un tag, exige une VM KVM neuve et les labels
 `self-hosted,windows,x64,minipc,ephemeral,sunshift`. PC-PRO-CLEM, PC-FIXE-CLEM et
 les runners Windows hébergés GitHub ne sont pas des cibles de repli. Les tâches
 Dependabot font exception et gardent leur service actuel ; cette migration ne
 modifie ni leurs réglages ni leurs jobs dynamiques.
+Les deux OS exigent aussi `rhada-run-${{ github.run_id }}-${{ github.run_attempt }}`.
+Le contrôleur commun privilégie la PR ayant encore des CI et créée la première,
+puis passe à la suivante dès leur fin, sans attendre de fusion.
 
 ## Environnement Windows
 
@@ -90,7 +93,7 @@ gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -
 
 **Actions → Rust Build → Run workflow** propose la plateforme et le contrôle
 physique optionnel. Le choix du runner n'est plus un paramètre. Les jobs Windows
-restent en attente tant qu'un runner ne possède pas les six labels et que le
+restent en attente tant qu'un runner ne possède pas les labels exigés et que le
 cycle de VM n'est pas préparé ; cette attente ne prouve pas que la VM existe.
 
 ## Contrôles natifs et publication

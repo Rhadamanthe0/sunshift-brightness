@@ -88,9 +88,12 @@ makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> i
 Le workflow Rust Build s'exécute uniquement sur MINIPC-CLEM. Chaque job
 Windows exige une VM neuve avec les labels
 `self-hosted,windows,x64,minipc,ephemeral,sunshift` ; les jobs Linux utilisent
-`self-hosted,linux,x64,minipc,podman`. Aucun de ces jobs ne se replie sur
+`self-hosted,linux,x64,minipc,ephemeral,podman-jit-v2`. Aucun de ces jobs ne se replie sur
 PC-PRO-CLEM, PC-FIXE-CLEM ou un runner hébergé GitHub. Les tâches Dependabot
 font exception à cette destination et gardent leur service actuel.
+Les deux OS exigent aussi `rhada-run-${{ github.run_id }}-${{ github.run_attempt }}`.
+Le contrôleur commun privilégie la PR ayant encore des CI et créée la première,
+puis passe à la suivante dès leur fin, sans attendre de fusion.
 
 La VM doit être détruite après chaque job, y compris après échec ou annulation ;
 les labels ne prouvent pas cette isolation. Le workflow prépare Rust/MinGW et
