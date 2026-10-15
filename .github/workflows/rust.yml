@@ -222,7 +222,8 @@ jobs:
           key: windows-gnu-mingw-16.2.0posix-14.0.0-ucrt-r2-${{ env.RUST_CACHE_WEEK }}
           workspaces: ". -> ${{ env.CARGO_CACHE_TARGET }}"
           cache-bin: false
-          # Ne pas reconditionner un cache volumineux après échec de test.
+          # Un échec doit terminer et publier ses diagnostics sans recompresser
+          # plusieurs Gio ; l'annulation du post-cache peut perdre les logs.
           cache-on-failure: false
 
       - name: Cargo Test

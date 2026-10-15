@@ -41,6 +41,7 @@ Le dossier cible situé dans
 règles de portée GitHub isolent les caches des PR ; une PR ne peut pas remplacer
 le cache de la branche principale. Les dépendances ne sont sauvegardées
 que si le job Windows réussit : aucune compression du cache après un échec.
+Les diagnostics doivent être publiés sans attendre cet export.
 Avant restauration, le workflow recherche Zstandard, puis peut télécharger sa
 version 1.5.7 avec contrôle SHA-512. En cas d'indisponibilité, le cache conserve
 le mode gzip. Un changement de méthode de compression produit une autre version
