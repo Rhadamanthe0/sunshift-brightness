@@ -326,7 +326,7 @@ jobs:
   publish:
     needs: windows
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    runs-on: [self-hosted, linux, x64, minipc, ephemeral, podman-jit-v2, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
     permissions:
       contents: write
     steps:
@@ -348,7 +348,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     # MINIPC-CLEM : libudev-dev, libssl-dev et la chaîne C sont dans l'image du
     # runner. apt-get y est impossible (root sans capacité : setgroups refusé).
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    runs-on: [self-hosted, linux, x64, minipc, ephemeral, podman-jit-v2, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
 
     steps:
       - name: Check Ubuntu dependencies
@@ -380,7 +380,7 @@ jobs:
 
   check_style:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    runs-on: [self-hosted, linux, x64, minipc, ephemeral, podman-jit-v2, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
     steps:
       - uses: actions/checkout@v4
         with:
