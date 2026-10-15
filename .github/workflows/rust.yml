@@ -26,10 +26,10 @@ env:
 permissions:
   contents: read
 
-# Un push annule le run precedent de la meme branche (pas de file inutile).
+# Une PR remplace sa validation précédente ; les runs manuels et du tronc restent indépendants.
 concurrency:
-  group: rust-${{ github.ref }}
-  cancel-in-progress: true
+  group: rust-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
 
