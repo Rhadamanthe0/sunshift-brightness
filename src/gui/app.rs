@@ -163,7 +163,13 @@ impl SsbEguiApp {
 
     pub fn update(&mut self, ctx: &egui::Context) {
         let queue = self.context.transitions.0.clone();
-        while let Some(transition) = queue.lock().unwrap().pop_front() {
+        loop {
+            // Drop the queue lock before running callbacks, which may enqueue
+            // further transitions themselves.
+            let transition = { queue.lock().unwrap().pop_front() };
+            let Some(transition) = transition else {
+                break;
+            };
             (transition)(self);
         }
 
@@ -267,9 +273,141 @@ mod native_tests {
     use egui_winit::winit::platform::windows::EventLoopBuilderExtWindows;
     use std::time::{Duration, Instant};
 
+    fn assert_rendered_frame(frame: Option<egui::ColorImage>, size: [usize; 2]) {
+        let frame = frame.expect("Native GUI frame was not rendered and captured");
+        assert!(size[0] > 0 && size[1] > 0, "Native GUI frame is empty");
+        assert_eq!(frame.size, size, "Capture does not match the native window");
+        assert_eq!(frame.pixels.len(), size[0] * size[1]);
+        assert!(
+            frame.pixels.iter().any(|pixel| *pixel != frame.pixels[0]),
+            "Native GUI frame contains only a clear color, without UI"
+        );
+        eprintln!(
+            "Captured native GUI frame {}x{} with UI pixels",
+            size[0], size[1]
+        );
+    }
+
+    // OpenGL cannot use wgpu's surface readback; verify the native presented window.
+    fn capture_opengl_frame(
+        window: &egui_winit::winit::window::Window,
+    ) -> Option<egui::ColorImage> {
+        use egui_winit::winit::platform::windows::WindowExtWindows;
+        use windows::Win32::Foundation::{HANDLE, HWND};
+        use windows::Win32::Graphics::Gdi::{
+            BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, GetDC,
+            ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+            SRCCOPY,
+        };
+
+        let size = window.inner_size();
+        let width = i32::try_from(size.width).ok()?;
+        let height = i32::try_from(size.height).ok()?;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        // Negative height makes the pixel buffer top-down BGRA.
+        let bitmap_info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let hwnd = HWND(window.hwnd());
+        unsafe {
+            let window_dc = GetDC(hwnd);
+            if window_dc.0 == 0 {
+                return None;
+            }
+            let memory_dc = CreateCompatibleDC(window_dc);
+            let captured = (|| {
+                if memory_dc.0 == 0 {
+                    return None;
+                }
+                let mut bits = std::ptr::null_mut();
+                let bitmap = CreateDIBSection(
+                    memory_dc,
+                    &bitmap_info,
+                    DIB_RGB_COLORS,
+                    &mut bits,
+                    HANDLE(0),
+                    0,
+                )
+                .ok()?;
+                let previous = SelectObject(memory_dc, HGDIOBJ(bitmap.0));
+                let pixels = (|| {
+                    if previous.0 == 0 || previous.0 == -1 {
+                        return None;
+                    }
+                    BitBlt(memory_dc, 0, 0, width, height, window_dc, 0, 0, SRCCOPY).ok()?;
+                    if !GdiFlush().as_bool() || bits.is_null() {
+                        return None;
+                    }
+                    let bytes = std::slice::from_raw_parts(
+                        bits.cast::<u8>(),
+                        size.width as usize * size.height as usize * 4,
+                    );
+                    Some(egui::ColorImage {
+                        size: [size.width as usize, size.height as usize],
+                        pixels: bytes
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .map(|pixel| egui::Color32::from_rgb(pixel[2], pixel[1], pixel[0]))
+                            .collect(),
+                    })
+                })();
+                if previous.0 != 0 && previous.0 != -1 {
+                    SelectObject(memory_dc, previous);
+                }
+                DeleteObject(HGDIOBJ(bitmap.0));
+                pixels
+            })();
+            if memory_dc.0 != 0 {
+                DeleteDC(memory_dc);
+            }
+            ReleaseDC(hwnd, window_dc);
+            captured
+        }
+    }
+
+    fn assert_native_frame(running: &mut crate::gui::WgpuWinitRunning) {
+        let backend = running
+            .painter
+            .render_state()
+            .unwrap()
+            .adapter
+            .get_info()
+            .backend;
+        let frame = if backend == egui_wgpu::wgpu::Backend::Gl {
+            capture_opengl_frame(&running.window)
+        } else {
+            running.test_frame.take()
+        };
+        let size = running.window.inner_size();
+        assert_rendered_frame(frame, [size.width as usize, size.height as usize]);
+    }
+
     #[test]
-    #[ignore = "Requires a Windows desktop with Vulkan or OpenGL; run explicitly on the PC runner"]
+    #[ignore = "Requires an interactive Windows desktop; run explicitly for each Vulkan/OpenGL backend"]
     fn native_windows_gui_lifecycle() {
+        // Le test doit exposer les échecs d'initialisation du pilote CI.
+        let _ = simplelog::TermLogger::init(
+            log::LevelFilter::Debug,
+            simplelog::Config::default(),
+            simplelog::TerminalMode::Stderr,
+            simplelog::ColorChoice::Never,
+        );
+        // Variable lue seulement par ce test ignoré ; aucun repli vers l'autre
+        // API ne doit donner une fausse preuve de rendu (migration MINIPC).
+        let requested = std::env::var("SSB_TEST_GUI_BACKEND").ok();
+        let selected = requested.as_deref().map(crate::gui::ci_test_backend);
         let config = Arc::new(RwLock::new(SsbConfig {
             location: Some(Location {
                 latitude: 48.8566,
@@ -322,6 +460,7 @@ mod native_tests {
                 controller.sender.clone(),
             )
         });
+        framework.test_backend = selected.map(|(supported, _)| supported);
         let pages = enum_iterator::all::<PageId>().collect::<Vec<_>>();
         let mut rendered = 0;
         let mut closed = false;
@@ -344,22 +483,38 @@ mod native_tests {
             if matches!(event, Event::RedrawEventsCleared) {
                 if rendered < pages.len() {
                     let running = framework.running.as_mut().unwrap();
-                    let backend = running
-                        .painter
-                        .render_state()
-                        .unwrap()
-                        .adapter
-                        .get_info()
-                        .backend;
-                    assert!(matches!(
-                        backend,
-                        egui_wgpu::wgpu::Backend::Vulkan | egui_wgpu::wgpu::Backend::Gl
-                    ));
+                    let adapter = running.painter.render_state().unwrap().adapter.get_info();
+                    let backend = adapter.backend;
+                    eprintln!(
+                        "Requested {}; rendering {backend:?}; adapter: {}; device: {:?}",
+                        requested.as_deref().unwrap_or("Vulkan or OpenGL"),
+                        adapter.name,
+                        adapter.device_type
+                    );
+                    if let Some((_, expected)) = selected {
+                        assert_eq!(
+                            backend, expected,
+                            "Requested rendering API was not obtained"
+                        );
+                        // wgpu-hal infère le type GL depuis le renderer.
+                        // Le nom SwiftShader approuvé prouve le pilote logiciel,
+                        // sans supposer un DeviceType universel à travers les API.
+                        assert!(
+                            adapter.name.to_ascii_lowercase().contains("swiftshader"),
+                            "Requested SwiftShader software adapter was not obtained"
+                        );
+                    } else {
+                        assert!(matches!(
+                            backend,
+                            egui_wgpu::wgpu::Backend::Vulkan | egui_wgpu::wgpu::Backend::Gl
+                        ));
+                    }
                     running.app.selected_page = pages[rendered];
                     // Ignore desktop input: a user click must never activate
                     // Save against the real configuration during this test.
                     let _ = running.egui_winit.take_egui_input(&running.window);
                     framework.paint();
+                    assert_native_frame(framework.running.as_mut().unwrap());
                     eprintln!("Rendered {} with {backend:?}", pages[rendered].title());
                     rendered += 1;
                 } else if !closed {
@@ -370,7 +525,9 @@ mod native_tests {
                         target,
                         &Event::UserEvent(UserEvent::OpenWindow("Native GUI test")),
                     );
+                    assert!(framework.running.as_ref().unwrap().test_frame.is_none());
                     framework.paint();
+                    assert_native_frame(framework.running.as_mut().unwrap());
                     reopened = true;
                 } else {
                     framework.close_window();

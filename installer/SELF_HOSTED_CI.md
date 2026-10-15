@@ -1,109 +1,123 @@
-# Run CI on your own machines
+# CI sur MINIPC-CLEM
 
-The Linux test and style jobs already use the server runner labelled
-`self-hosted`, `linux`, `x64`, `minipc`, `podman`.
+Le workflow Rust Build utilise uniquement MINIPC-CLEM. Les jobs Linux de tests,
+style et publication exigent `self-hosted,linux,x64,minipc,ephemeral,podman-jit-v2`. Chaque job
+Windows, y compris une PR de fork ou un tag, exige une VM KVM neuve et les labels
+`self-hosted,windows,x64,minipc,ephemeral,sunshift`. PC-PRO-CLEM, PC-FIXE-CLEM et
+les runners Windows hébergés GitHub ne sont pas des cibles de repli. Les tâches
+Dependabot font exception et gardent leur service actuel ; cette migration ne
+modifie ni leurs réglages ni leurs jobs dynamiques.
+Les deux OS exigent aussi `rhada-run-${{ github.run_id }}-${{ github.run_attempt }}`.
+Le contrôleur commun privilégie la PR ayant encore des CI et créée la première,
+puis passe à la suivante dès leur fin, sans attendre de fusion.
 
-The Windows job validates pushes and pull requests on an ephemeral
-GitHub-hosted runner, and builds tag releases on the Windows PC below. It does
-not run untrusted pull-request code on the release machine. A manual run can
-still select either runner.
+## Environnement Windows
 
-## Register the Windows runner once
+La création de la VM et le cycle du runner relèvent de l'infrastructure MINIPC.
+Ces changements de workflow ne les installent ni ne les enregistrent. Ne pas
+attribuer ces labels à une machine persistante : ils ne garantissent pas
+l'isolation. La VM doit être détruite après réussite, échec ou annulation, sans
+secrets hôte, socket de conteneurs rootful, dossiers personnels ni accès au
+réseau domestique. L'enveloppe CPU et mémoire CI reste partagée avec Linux.
 
-1. Open this repository's [runner settings](https://github.com/Rhadamanthe0/sunshift-brightness/settings/actions/runners),
-   choose **New self-hosted runner**, then **Windows / x64**.
-2. Follow GitHub's download and configuration commands on the Windows PC.
-   Keep the runner and its work directory on a local disk, outside Google Drive.
-   Keep the default labels `self-hosted`, `windows`, `x64` and add `sunshift`.
-   The registration token stays on that PC; do not put it in the repository.
-3. The runner account needs Git. The workflow prepares its own Rust stable GNU
-   toolchain and Clippy under the runner tool cache, using the official Rustup
-   download with its SHA-256 checksum. Existing personal Rust installations and
-   the system PATH are left unchanged. For the GNU linker, it checks `C:\Strawberry\c\bin` and
-   `C:\msys64\mingw64\bin` if MinGW is not on PATH.
-   If absent, it downloads a pinned portable MinGW build into the runner's
-   tool cache, verifies its SHA-256 checksum and adds it to the job's
-   PATH. It does not change the system PATH or require administrator rights.
-   NSIS can be on PATH or installed in its
-   standard `Program Files (x86)\NSIS` directory. Otherwise the installer step
-   downloads and verifies a pinned portable NSIS build in the runner's tool
-   cache. Completed tool extractions are reused by later jobs. Only the installer
-   compiler builds the normal installer; a separate temporary fixture tests
-   installation and uninstallation as described below.
-   Cargo build artifacts also stay in the local tool cache, outside the checkout,
-   so later jobs reuse them without archiving or uploading them to GitHub.
-4. Start `.\run.cmd` from the runner directory and leave that terminal open.
-   The PC must be awake and a user logged into its desktop. The Windows job
-   opens a temporary GUI and tray icon to check rendering and window reopening.
-   Vulkan or OpenGL is required. If the runner is a service, the GUI helper
-   uses a temporary scheduled task to run the test in the logged-in console
-   user's session. This requires task registration rights; otherwise start the
-   runner directly in that user's session. The temporary task is removed after
-   the test, and no credentials are passed to it.
+Le guest requiert Git, Windows PowerShell et un bureau Windows interactif.
+Le workflow prépare Rust stable GNU et Clippy dans son cache local, puis vérifie
+ou télécharge MinGW portable (`gcc`, `dlltool`, `windres`) et NSIS (`makensis`).
+Les archives sont figées et vérifiées par SHA-256. Cette chaîne GNU n'exige ni
+MSVC Build Tools, ni CMake, ni Chocolatey. Les outils restent dans la VM jetable. Les dépendances Cargo téléchargées et
+compilées (debug et release) sont sauvegardées dans le cache GitHub Actions par
+`Swatinem/rust-cache`, puis restaurées dans chaque nouvelle VM. Aucun disque
+écrivable de VM n'est partagé entre jobs. Le cache exclut les exécutables de
+`CARGO_HOME/bin` ; Rust est toujours préparé et vérifié avant la restauration.
 
-GitHub's runner configuration requires repository administration rights.
-Registering a runner does not install the brightness application or change
-monitor settings.
+La clé distingue Windows GNU et la version MinGW, puis inclut automatiquement
+la version de Rust, les manifestes et `Cargo.lock`. Le dossier cible situé dans
+`RUNNER_TOOL_CACHE` est explicitement déclaré relativement au checkout. Les
+règles de portée GitHub isolent les caches des PR ; une PR ne peut pas remplacer
+le cache de la branche principale. Les dépendances sont sauvegardées uniquement après réussite des validations :
+un échec doit publier ses diagnostics sans attendre la compression du cache.
+Le premier passage reste une compilation à froid ;
+les suivants peuvent réutiliser les dépendances, mais recompilent le projet et
+refont l'édition de liens. La validation native doit confirmer la sauvegarde,
+puis une restauration lors d'un job suivant.
 
-## Start a manual validation
+La préparation approuvée fournit Vulkan SwiftShader et OpenGL ES via EGL/ANGLE logiciel
+sur CPU. Les deux passes GUI natives demandent explicitement Vulkan et OpenGL,
+vérifient le backend réellement sélectionné et refusent un repli vers l'autre
+API. La capture Vulkan utilise la relecture GPU ; la capture OpenGL sous
+egui-wgpu 0.23 lit les pixels de la fenêtre Windows via GDI. Chaque page et
+la fenêtre rouverte doivent produire une image non uniforme. Le rendu logiciel
+ne prouve pas le support d'un GPU ou moniteur physique.
+La passe OpenGL conserve les DLL ANGLE/SwiftShader 137 ensemble et copie aussi
+le chargeur vérifié `vulkan-1.dll` dans son dossier privé. Son manifeste
+`installer/vk_swiftshader_icd.json` provient de Chrome for Testing
+137.0.7151.119 (archive SHA-256
+`c1ff403bfd791544fd880f67daa81bfaa022c2e3fdbc0ad68605458b5a2c0845`) ;
+il désigne la DLL GLES locale, sans emprunter celle de la passe Vulkan.
+Les essais GUI et installateur exigent toujours Windows ; une compilation
+croisée ne les remplace pas.
 
-With GitHub CLI authenticated to this repository:
+Un runner démarré comme service utilise une tâche planifiée temporaire pour
+lancer la fixture GUI dans la session console connectée. Cela exige le droit
+d'enregistrer cette tâche ; elle est supprimée après l'essai et ne reçoit aucun
+identifiant du runner. Le guest doit fournir cette session interactive jetable.
+Aucun bureau personnel n'est utilisé.
+
+## Validation manuelle
+
+Après publication du workflow migré, choisir une branche qui le contient :
 
 ```powershell
-# Windows PC: tests, Clippy, release build, and installer compilation.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=windows -f windows_runner=self-hosted
-
-# Linux server: tests, Clippy, script syntax, format and manifest ordering.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=linux
-
-# Both machines.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=all -f windows_runner=self-hosted
-
-# Also validate a connected monitor's native brightness control, keeping its current values.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref audit/2026-10-08 -f platform=all -f windows_runner=self-hosted -f physical_monitor_check=true
+$branch = 'master'
+# Windows : tests, Clippy, build release, NSIS et essais GUI/installateur natifs.
+gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=windows
+# Linux : tests, Clippy, syntaxe du script, format et tri du manifeste.
+gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=linux
+# Les deux plateformes, exclusivement sur MINIPC-CLEM.
+gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=all
+# Seulement avec un moniteur physique compatible réellement accessible au guest.
+gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=windows -f physical_monitor_check=true
 ```
 
-Use the branch containing the changes you want to validate. Once the workflow
-is on the default branch, **Actions → Rust Build → Run workflow** provides the
-same platform and runner selections in the GitHub UI. Keep MINIPC-CLEM
-available for automatic push/PR runs (Linux jobs stay self-hosted); the
-Windows PC is needed for tag releases and manual self-hosted runs.
+**Actions → Rust Build → Run workflow** propose la plateforme et le contrôle
+physique optionnel. Le choix du runner n'est plus un paramètre. Les jobs Windows
+restent en attente tant qu'un runner ne possède pas les labels exigés et que le
+cycle de VM n'est pas préparé ; cette attente ne prouve pas que la VM existe.
 
-A Windows job stays queued until an online runner has all four labels:
-`self-hosted`, `windows`, `x64`, `sunshift`.
+## Contrôles natifs et publication
 
-The Windows PC job also renders all GUI pages, including the solar preview,
-and closes/reopens its temporary window. It uses an in-memory configuration
-with every monitor disabled and does not load or save your application files.
-Desktop input is discarded during rendering so a click cannot activate Save.
-The GUI test is selected explicitly by the workflow; ordinary `cargo test`
-skips it because it needs a Windows desktop with Vulkan or OpenGL.
+La fixture GUI rend toutes les pages et le graphe solaire, crée le tray puis
+ferme et rouvre sa fenêtre, pour chacune des deux API demandées. Elle garde sa
+configuration en mémoire avec tous les moniteurs désactivés, ignore les clics
+et ne charge ni n'enregistre les fichiers applicatifs. `cargo test` ordinaire
+ignore cet essai ; le workflow l'appelle explicitement.
 
-The PC job also executes an isolated NSIS fixture: two upgrades preserve a test
-configuration, replace a locked CLI file after stopping its test process, and
-verify payloads, autostart command and shortcuts. It then uninstalls the fixture.
-Its files and shortcuts are under `RUNNER_TEMP`, and its registry key is under
-`HKCU\Software\SunshiftBrightness\CI\<GUID>` rather than the real autostart key.
-Executable names also include the GUID. The fixture never starts the application and
-does not touch your existing installation or its configuration.
+La fixture NSIS effectue deux mises à niveau, vérifie la conservation de sa
+configuration, arrête son processus CLI verrouillé, compare les binaires, vérifie
+démarrage automatique et raccourcis, puis désinstalle. Fichiers, processus, clés
+de registre et raccourcis portent des identifiants uniques. Aucune application
+n'est installée pour un usage personnel.
 
-The GUI helper also records desktop session IDs and the results of the GDI/DXVA2
-monitor APIs. With `physical_monitor_check=true` on a self-hosted Windows run,
-it reads a monitor's native brightness values, sends those exact values and
-reads them back. Internal Windows displays use the same IOCTL interface as the
-application; both AC/battery values and the current policy are preserved.
-External displays use DDC/CI. At least one compatible monitor must pass;
-if none passes, the check fails. Ordinary runs only enumerate monitors and
-do not send brightness commands. Neither mode changes the application configuration.
+Sur tag uniquement, après réussite de ces contrôles Windows, les mêmes trois
+exécutables (`ssb.exe`, `ssb-cli.exe`, `ssb-installer.exe`) sont envoyés comme
+artefact `windows-release`. Un job Linux distinct télécharge l'artefact de cette
+exécution et publie la release. Seul ce job possède `contents: write` ; les jobs
+de compilation et tests gardent `contents: read`, avec
+`persist-credentials: false` pour checkout. Ce guide n'autorise pas la création
+d'un tag ou d'une release comme simple essai.
 
-If this check fails, inspect the physical monitor description and Windows error
-in the job log. For an external display, enable DDC/CI in the monitor menu and check the connection;
-detecting a physical monitor does not establish DDC/CI support. A failure such as
-`0xC0262589` means Windows received an invalid DDC/CI response command. Test a
-direct HDMI/DisplayPort connection if a dock, adapter or KVM is involved.
-An internal laptop panel does not require a DDC/CI menu setting. The diagnostic
-reports its connection type and the result of the application's IOCTL interface.
+## Contrôle du moniteur physique
 
-Real login/lock/unlock and physically disconnecting/reconnecting a monitor need
-a separate interactive test session. The native tests exercise the Win32 message
-handlers and registration, and the installer fixture verifies the autostart command.
+`physical_monitor_check=true` conserve le cycle natif existant : lire la
+luminosité actuelle, réécrire ces mêmes valeurs, puis les relire. Les écrans
+internes utilisent l'interface Windows IOCTL de l'application et conservent les
+valeurs secteur et batterie ; les écrans externes exigent DDC/CI. Au moins un
+moniteur physique compatible doit réussir, sinon le contrôle échoue. Un écran
+virtuel ne prouve pas cette capacité. Les passages ordinaires ne font
+qu'énumérer les moniteurs.
+
+En cas d'échec, lire la description du moniteur physique et l'erreur Windows.
+Pour un écran externe, DDC/CI doit être activé avec une connexion compatible ;
+un moniteur détecté ne prouve pas le support DDC/CI. Connexion, verrouillage et
+déverrouillage réels, ainsi que débranchement/rebranchement physique du moniteur,
+exigent encore une séance interactive distincte.

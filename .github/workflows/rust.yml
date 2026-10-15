@@ -2,6 +2,8 @@ name: Rust Build
 
 on:
   push:
+    branches: [master]
+    tags: ['v[0-9]*']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -10,11 +12,6 @@ on:
         type: choice
         options: [all, linux, windows]
         default: all
-      windows_runner:
-        description: Windows runner
-        type: choice
-        options: [self-hosted, github-hosted]
-        default: self-hosted
       physical_monitor_check:
         description: Check native monitor brightness by writing and reading back its current values
         type: boolean
@@ -23,28 +20,25 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# L'étape « Publish Release Artifacts » (sur tag) crée une Release via le
-# GITHUB_TOKEN. Par défaut le dépôt le fournit en lecture seule -> échec 403.
-# On lui accorde l'écriture du contenu (suffisant : checkout + création de Release).
+# Les constructions et tests restent en lecture seule. Seul le job de
+# publication des artefacts validés sur tag peut créer une release.
 permissions:
-  contents: write
+  contents: read
 
-# Un push annule le run precedent de la meme branche (pas de file inutile).
+# Une PR remplace sa validation précédente ; les runs manuels et du tronc restent indépendants.
 concurrency:
-  group: rust-${{ github.ref }}
-  cancel-in-progress: true
+  group: rust-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
 
   windows:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
-    # Push and PR: ephemeral GitHub runner. A PR job executes unreviewed code
-    # (build.rs, tests, proc-macros): on the persistent runner that publishes
-    # releases, that means persistence leading to trojaned installers
-    # (Codex Security finding, 10/2026). Tags (publication) and manual
-    # self-hosted dispatch: the trusted self-hosted runner (PC-PRO-CLEM, until
-    # the second PC gets its runner).
-    runs-on: ${{ (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.windows_runner != 'github-hosted')) && fromJSON('["self-hosted", "windows", "x64", "sunshift"]') || 'windows-latest' }}
+    # Toutes les exécutions, forks compris, exigent une VM Windows neuve
+    # par job sur MINIPC-CLEM ; les labels seuls ne prouvent pas son isolation.
+    runs-on: [self-hosted, windows, x64, minipc, ephemeral, sunshift, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    permissions:
+      contents: read
     defaults:
       run:
         shell: powershell
@@ -52,24 +46,23 @@ jobs:
     steps:
       - name: Prepare Windows target directory
         run: |
-          if ('${{ inputs.physical_monitor_check }}' -eq 'true' -and '${{ runner.environment }}' -ne 'self-hosted') {
-            throw 'Physical monitor validation requires the self-hosted Windows PC.'
-          }
-          if ('${{ runner.environment }}' -eq 'self-hosted') {
-            $target = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-cargo-target'
-            $previous = Join-Path $env:GITHUB_WORKSPACE 'target'
-            if (-not (Test-Path $target) -and (Test-Path $previous)) {
-              Move-Item -LiteralPath $previous -Destination $target
-            }
-          } else {
-            $target = Join-Path $env:GITHUB_WORKSPACE 'target'
+          $target = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-cargo-target'
+          $previous = Join-Path $env:GITHUB_WORKSPACE 'target'
+          if (-not (Test-Path $target) -and (Test-Path $previous)) {
+            Move-Item -LiteralPath $previous -Destination $target
           }
           "CARGO_TARGET_DIR=$($target.Replace('\', '/'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # rust-cache attend un chemin relatif au workspace, même hors du checkout.
+          $workspaceUri = [Uri]($env:GITHUB_WORKSPACE.TrimEnd('\', '/') + '/')
+          $targetUri = [Uri]($target.TrimEnd('\', '/') + '/')
+          $relativeTarget = [Uri]::UnescapeDataString($workspaceUri.MakeRelativeUri($targetUri).ToString())
+          "CARGO_CACHE_TARGET=$relativeTarget" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Prepare isolated Rust toolchain
-        if: runner.environment == 'self-hosted'
         run: |
           $ProgressPreference = 'SilentlyContinue'
           $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-rust'
@@ -148,9 +141,16 @@ jobs:
             }
           }
 
-      - name: Cache cargo
-        if: runner.environment == 'github-hosted'
+      - name: Cache Windows Cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          # Rust et MinGW sont préparés avant le calcul de la clé.
+          key: windows-gnu-mingw-16.2.0posix-14.0.0-ucrt-r2
+          workspaces: ". -> ${{ env.CARGO_CACHE_TARGET }}"
+          cache-bin: false
+          # Un échec doit terminer et publier ses diagnostics sans recompresser
+          # plusieurs Gio ; l'annulation du post-cache peut perdre les logs.
+          cache-on-failure: false
 
       - name: Cargo Test
         run: cargo test --locked
@@ -160,10 +160,6 @@ jobs:
 
       - name: Cargo Release Build
         run: cargo build --locked --release
-
-      - name: Install NSIS
-        if: runner.environment == 'github-hosted'
-        run: choco install nsis -y --no-progress
 
       # makensis doit tourner depuis installer/ : le script utilise des chemins
       # relatifs (..\target\release, ..\assets) qui supposent ce dossier courant.
@@ -183,10 +179,26 @@ jobs:
             $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-nsis-3.11'
             $ready = Join-Path $directory '.ready'
             if (-not (Test-Path $ready)) {
-              Invoke-WebRequest -UseBasicParsing -Uri 'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip' -OutFile $archive -TimeoutSec 300
-              if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1') {
-                throw 'NSIS archive checksum mismatch.'
+              # Le téléchargement SourceForge peut renvoyer un fichier différent.
+              # Le miroir contient les mêmes octets : l'empreinte reste obligatoire.
+              $verified = $false
+              foreach ($uri in @(
+                'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip',
+                'https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip'
+              )) {
+                try {
+                  Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive -TimeoutSec 300 -ErrorAction Stop
+                  $checksum = (Get-FileHash $archive -Algorithm SHA256).Hash
+                  if ($checksum -eq 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1') {
+                    $verified = $true
+                    break
+                  }
+                  Write-Warning "NSIS archive checksum mismatch: $checksum"
+                } catch {
+                  Write-Warning "Unable to download NSIS: $($_.Exception.Message)"
+                }
               }
+              if (-not $verified) { throw 'Unable to download the verified NSIS archive.' }
               if (Test-Path "$env:SystemRoot\System32\tar.exe") {
                 New-Item -ItemType Directory -Path $directory -Force | Out-Null
                 & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $directory
@@ -200,43 +212,77 @@ jobs:
           }
 
       - name: Windows installer lifecycle
-        if: runner.environment == 'self-hosted'
         run: '& ./installer/test_windows_installer.ps1'
 
       # Compilation and Cargo metadata scanning must not consume the GUI's
-      # execution deadline, especially on a busy self-hosted PC.
+      # execution deadline, including in the ephemeral Windows VM.
       - name: Prepare Windows GUI test executable
-        if: runner.environment == 'self-hosted'
         timeout-minutes: 10
         run: '& ./installer/test_windows_gui.ps1 -PrepareOnly'
 
-      - name: Windows GUI lifecycle
-        if: runner.environment == 'self-hosted'
+      - name: Windows GUI lifecycle Vulkan
         timeout-minutes: 3
         env:
           SSB_TEST_MONITOR_ROUNDTRIP: ${{ inputs.physical_monitor_check && '1' || '0' }}
-        run: '& ./installer/test_windows_gui.ps1'
+        run: '& ./installer/test_windows_gui.ps1 -Backend Vulkan'
+
+      - name: Windows GUI lifecycle OpenGL
+        timeout-minutes: 3
+        env:
+          SSB_TEST_MONITOR_ROUNDTRIP: '0'
+        run: '& ./installer/test_windows_gui.ps1 -Backend OpenGL'
 
       - if: startsWith(github.ref, 'refs/tags/')
-        name: Publish Release Artifacts
+        name: Collect Release Artifacts
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'sunshift-release-artifacts'
+          New-Item -ItemType Directory -Path $directory | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release\ssb.exe') -Destination $directory
+          Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release\ssb-cli.exe') -Destination $directory
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'installer\ssb-installer.exe') -Destination $directory
+
+      - if: startsWith(github.ref, 'refs/tags/')
+        name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: ${{ runner.temp }}/sunshift-release-artifacts/*.exe
+          if-no-files-found: error
+
+  publish:
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: [self-hosted, linux, x64, minipc, ephemeral, podman-jit-v2, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    permissions:
+      contents: write
+    steps:
+      - name: Download Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release-artifacts
+
+      - name: Publish Release Artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ env.CARGO_TARGET_DIR }}/release/ssb.exe
-            ${{ env.CARGO_TARGET_DIR }}/release/ssb-cli.exe
-            ./installer/ssb-installer.exe
+            release-artifacts/ssb.exe
+            release-artifacts/ssb-cli.exe
+            release-artifacts/ssb-installer.exe
 
   ubuntu:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
     # MINIPC-CLEM : libudev-dev, libssl-dev et la chaîne C sont dans l'image du
     # runner. apt-get y est impossible (root sans capacité : setgroups refusé).
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    runs-on: [self-hosted, linux, x64, minipc, ephemeral, podman-jit-v2, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
 
     steps:
       - name: Check Ubuntu dependencies
         run: dpkg -s libudev-dev libssl-dev build-essential pkg-config >/dev/null
 
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -260,9 +306,11 @@ jobs:
 
   check_style:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    runs-on: [self-hosted, linux, x64, minipc, ephemeral, podman-jit-v2, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -270,6 +318,17 @@ jobs:
           toolchain: stable
           components: rustfmt
 
+      - name: Diagnose dependency lock (temporary)
+        shell: bash
+        run: |
+          # Resolve the full dependency graph, including target-specific crates.
+          # --no-deps would not sufficiently exercise the broken lockfile.
+          if ! cargo metadata --locked --format-version 1 >/dev/null; then
+            echo 'Cargo.lock differs from the Cargo resolver result:'
+            cargo metadata --format-version 1 >/dev/null
+            git diff -- Cargo.lock
+            exit 1
+          fi
       - name: Cargo Format
         run: cargo fmt -- --check
 

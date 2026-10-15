@@ -130,4 +130,8 @@ try {
     foreach ($shortcut in $shortcuts) {
         if (Test-Path $shortcut) { Remove-Item -LiteralPath $shortcut }
     }
+    # Remove the isolated GUID fixture on failure as well as success.
+    if (Test-Path -LiteralPath $root) {
+        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
+    }
 }
