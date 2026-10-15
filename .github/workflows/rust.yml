@@ -162,6 +162,9 @@ jobs:
             }
           }
 
+      - name: Test optional compressor fallback (offline)
+        run: '& ./installer/test_zstd_fallback.ps1'
+
       # La VM jetable disposait de GNU tar mais retombait sur gzip ; 1 Gio
       # de cache Rust a nécessité 17 min d'extraction. Zstd est optionnel.
       - name: Enable fast Windows Cargo cache compression
@@ -197,6 +200,9 @@ jobs:
             } catch {
               # Une panne du téléchargement n'empêche pas les tests : repli gzip.
               # Jamais d'exécution du binaire si l'empreinte est incorrecte.
+              # Le runner termine sur LASTEXITCODE, même après une exception traitée.
+              # Seul cet outil optionnel peut échouer sans bloquer les tests.
+              $global:LASTEXITCODE = 0
               Write-Warning "[ci] Zstandard unavailable; keep gzip: $($_.Exception.Message)"
             }
           }
