@@ -21,24 +21,36 @@ secrets hôte, socket de conteneurs rootful, dossiers personnels ni accès au
 réseau domestique. L'enveloppe CPU et mémoire CI reste partagée avec Linux.
 
 Le guest requiert Git, Windows PowerShell et un bureau Windows interactif.
-Le workflow prépare Rust stable GNU et Clippy dans son cache local, puis vérifie
-ou télécharge MinGW portable (`gcc`, `dlltool`, `windres`) et NSIS (`makensis`).
-Les archives sont figées et vérifiées par SHA-256. Cette chaîne GNU n'exige ni
-MSVC Build Tools, ni CMake, ni Chocolatey. Les outils restent dans la VM jetable. Les dépendances Cargo téléchargées et
+Lorsque la référence Windows scellée contient Rust stable GNU/Clippy et WinLibs
+MinGW (`gcc`, `dlltool`, `windres`), le workflow les vérifie et les réutilise
+sans téléchargement. Les références antérieures conservent la préparation
+Rust dans le cache local du job et le téléchargement vérifié de MinGW.
+NSIS (`makensis`) est recherché dans le PATH avant l'installation portable
+de secours. Les archives téléchargées sont vérifiées par SHA-256 (SHA-512 pour
+Zstandard). Cette chaîne GNU n'exige ni MSVC Build Tools, ni CMake, ni Chocolatey.
+La référence reste immuable ; chaque job écrit seulement dans sa VM jetable.
+Les dépendances Cargo téléchargées et
 compilées (debug et release) sont sauvegardées dans le cache GitHub Actions par
 `Swatinem/rust-cache`, puis restaurées dans chaque nouvelle VM. Aucun disque
 écrivable de VM n'est partagé entre jobs. Le cache exclut les exécutables de
 `CARGO_HOME/bin` ; Rust est toujours préparé et vérifié avant la restauration.
 
-La clé distingue Windows GNU et la version MinGW, puis inclut automatiquement
-la version de Rust, les manifestes et `Cargo.lock`. Le dossier cible situé dans
+La clé distingue Windows GNU, la version MinGW et la semaine UTC du lundi,
+puis inclut automatiquement la version de Rust, les manifestes et `Cargo.lock`.
+Une première exécution réussie de la semaine permet de sauvegarder une nouvelle
+génération de cache, sans devoir réutiliser indéfiniment une archive immuable.
+Le dossier cible situé dans
 `RUNNER_TOOL_CACHE` est explicitement déclaré relativement au checkout. Les
 règles de portée GitHub isolent les caches des PR ; une PR ne peut pas remplacer
-le cache de la branche principale. Les dépendances sont sauvegardées uniquement après réussite des validations :
-un échec doit publier ses diagnostics sans attendre la compression du cache.
-Le premier passage reste une compilation à froid ;
-les suivants peuvent réutiliser les dépendances, mais recompilent le projet et
-refont l'édition de liens. La validation native doit confirmer la sauvegarde,
+le cache de la branche principale. Les dépendances ne sont sauvegardées
+que si le job Windows réussit : aucune compression du cache après un échec.
+Les diagnostics doivent être publiés sans attendre cet export.
+Avant restauration, le workflow recherche Zstandard, puis peut télécharger sa
+version 1.5.7 avec contrôle SHA-512. En cas d'indisponibilité, le cache conserve
+le mode gzip. Un changement de méthode de compression produit une autre version
+de cache GitHub : le premier passage avec Zstandard peut donc être à froid.
+Les suivants peuvent réutiliser les dépendances, mais recompilent le projet et
+refont l'édition de liens. La validation native doit confirmer une sauvegarde,
 puis une restauration lors d'un job suivant.
 
 La préparation approuvée fournit Vulkan SwiftShader et OpenGL ES via EGL/ANGLE logiciel

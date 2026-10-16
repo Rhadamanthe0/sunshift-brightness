@@ -1,5 +1,6 @@
 name: Rust Build
 
+# Une seule CI par PR ; les tags de version conservent leur publication.
 on:
   push:
     branches: [master]
@@ -65,7 +66,13 @@ jobs:
       - name: Prepare isolated Rust toolchain
         run: |
           $ProgressPreference = 'SilentlyContinue'
-          $directory = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-rust'
+          # Préférence à la toolchain scellée de la VM jetable (rhada-pc).
+          $baseRust = 'C:\RhadaCI\tools\rust'
+          $directory = if (Test-Path -LiteralPath (Join-Path $baseRust 'cargo\bin\rustup.exe')) {
+            $baseRust
+          } else {
+            Join-Path $env:RUNNER_TOOL_CACHE 'ssb-rust'
+          }
           $env:CARGO_HOME = Join-Path $directory 'cargo'
           $env:RUSTUP_HOME = Join-Path $directory 'rustup'
           $env:RUSTUP_TOOLCHAIN = 'stable-x86_64-pc-windows-gnu'
@@ -87,8 +94,15 @@ jobs:
             & $installer -y --no-modify-path --profile minimal --default-toolchain $env:RUSTUP_TOOLCHAIN
             if ($LASTEXITCODE -ne 0) { throw 'Unable to install isolated Rust toolchain.' }
           }
-          & $rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component clippy --no-self-update
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to prepare Rust and Clippy.' }
+          if ($directory -eq $baseRust) {
+            & $rustup run $env:RUSTUP_TOOLCHAIN rustc -vV
+            if ($LASTEXITCODE -ne 0) { throw 'Sealed GNU Rust toolchain failed its runtime check.' }
+            & $rustup run $env:RUSTUP_TOOLCHAIN cargo clippy --version
+            if ($LASTEXITCODE -ne 0) { throw 'Sealed Clippy unavailable.' }
+          } else {
+            & $rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component clippy --no-self-update
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to prepare Rust and Clippy.' }
+          }
           foreach ($name in @('CARGO_HOME', 'RUSTUP_HOME', 'RUSTUP_TOOLCHAIN')) {
             "$name=$([Environment]::GetEnvironmentVariable($name))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           }
@@ -97,6 +111,13 @@ jobs:
       - name: Prepare Windows build tools
         run: |
           $ProgressPreference = 'SilentlyContinue'
+          # WinLibs 16.2.0 intégré à la référence ; garder le chemin de
+          # téléchargement vérifié pour les références précédentes.
+          $baseMinGW = 'C:\RhadaCI\tools\mingw\mingw64\bin'
+          if (Test-Path -LiteralPath (Join-Path $baseMinGW 'dlltool.exe')) {
+            $env:PATH = "$baseMinGW;$env:PATH"
+            $baseMinGW | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
           $rustInfo = rustc -vV
           if ($LASTEXITCODE -ne 0) { throw "Rust is not available to the runner account." }
           $rustInfo
@@ -141,11 +162,64 @@ jobs:
             }
           }
 
+      - name: Test optional compressor fallback (offline)
+        run: '& ./installer/test_zstd_fallback.ps1'
+
+      # La VM jetable disposait de GNU tar mais retombait sur gzip ; 1 Gio
+      # de cache Rust a nécessité 17 min d'extraction. Zstd est optionnel.
+      - name: Enable fast Windows Cargo cache compression
+        run: |
+          $available = Get-Command zstd.exe -ErrorAction SilentlyContinue
+          if ($available) {
+            & $available.Source --version
+            if ($LASTEXITCODE -ne 0) { throw 'Existing zstd.exe failed its version check' }
+          } else {
+            $archive = Join-Path $env:RUNNER_TEMP 'ssb-zstd-1.5.7.zip'
+            $directory = Join-Path $env:RUNNER_TEMP 'ssb-zstd-1.5.7'
+            try {
+              $uri = 'https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-v1.5.7-win64.zip'
+              Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive -TimeoutSec 120
+              $expected = 'a96dc5417943c03fa231bf2d6a586b7ae7254fa52fdc15d302f296b5ff88e1ff0f07120a720149eb82ea0f0c65444393ebf05d2ee1bd1db341b803ff65a2e675'
+              if ((Get-FileHash -LiteralPath $archive -Algorithm SHA512).Hash.ToLowerInvariant() -ne $expected) {
+                throw 'Zstandard SHA-512 mismatch: executable refused'
+              }
+              Expand-Archive -LiteralPath $archive -DestinationPath $directory -Force
+              # L'archive officielle peut contenir une seconde archive ZIP.
+              $nested = @(Get-ChildItem -LiteralPath $directory -File -Recurse -Filter '*.zip')
+              if ($nested.Count -gt 1) { throw 'Unexpected multiple nested Zstandard archives' }
+              if ($nested.Count -eq 1) {
+                Expand-Archive -LiteralPath $nested[0].FullName -DestinationPath (Join-Path $directory 'inner') -Force
+              }
+              $binaries = @(Get-ChildItem -LiteralPath $directory -Recurse -File -Filter 'zstd.exe')
+              if ($binaries.Count -ne 1) { throw "Expected one zstd.exe, found $($binaries.Count)" }
+              & $binaries[0].FullName --version
+              if ($LASTEXITCODE -ne 0) { throw 'Verified zstd.exe failed to start' }
+              $binaryDir = Split-Path -Parent $binaries[0].FullName
+              [IO.File]::AppendAllText($env:GITHUB_PATH, $binaryDir + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+              Write-Output '[ci] Verified Zstandard enabled for Cargo cache'
+            } catch {
+              # Une panne du téléchargement n'empêche pas les tests : repli gzip.
+              # Jamais d'exécution du binaire si l'empreinte est incorrecte.
+              # Le runner termine sur LASTEXITCODE, même après une exception traitée.
+              # Seul cet outil optionnel peut échouer sans bloquer les tests.
+              $global:LASTEXITCODE = 0
+              Write-Warning "[ci] Zstandard unavailable; keep gzip: $($_.Exception.Message)"
+            }
+          }
+
+      # Un cache exact est immuable : renouveler une fois par semaine pour
+      # conserver les nouveaux objets compilés après la restauration précédente.
+      - name: Select weekly Rust cache generation
+        run: |
+          $today = [DateTime]::UtcNow.Date
+          $monday = $today.AddDays(-(([int]$today.DayOfWeek + 6) % 7))
+          "RUST_CACHE_WEEK=$($monday.ToString('yyyyMMdd'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Cache Windows Cargo dependencies
         uses: Swatinem/rust-cache@v2
         with:
           # Rust et MinGW sont préparés avant le calcul de la clé.
-          key: windows-gnu-mingw-16.2.0posix-14.0.0-ucrt-r2
+          key: windows-gnu-mingw-16.2.0posix-14.0.0-ucrt-r2-${{ env.RUST_CACHE_WEEK }}
           workspaces: ". -> ${{ env.CARGO_CACHE_TARGET }}"
           cache-bin: false
           # Un échec doit terminer et publier ses diagnostics sans recompresser
