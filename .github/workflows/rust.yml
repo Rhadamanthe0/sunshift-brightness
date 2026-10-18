@@ -37,7 +37,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
     # Toutes les exécutions, forks compris, exigent une VM Windows neuve
     # par job sur MINIPC-CLEM ; les labels seuls ne prouvent pas son isolation.
-    runs-on: [self-hosted, windows, x64, minipc, ephemeral, sunshift, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    runs-on: [self-hosted, Windows, X64, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
     permissions:
       contents: read
     defaults:
