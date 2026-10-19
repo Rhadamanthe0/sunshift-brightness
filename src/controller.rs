@@ -62,6 +62,9 @@ fn run<F: Fn()>(
     let mut enabled = true;
 
     loop {
+        // A clock correction can also happen during calculation or monitor writes,
+        // before receive_until starts waiting for the resulting solar deadline.
+        let clock_reference = (SystemTime::now(), Instant::now());
         let timeout = if enabled {
             // Apply brightness using latest config
             let config = config.read().unwrap().clone();
@@ -85,6 +88,7 @@ fn run<F: Fn()>(
             }
             Some(timeout) => receive_until(
                 timeout,
+                clock_reference,
                 |duration| receiver.recv_timeout(duration),
                 || (SystemTime::now(), Instant::now()),
             ),
@@ -118,9 +122,11 @@ fn run<F: Fn()>(
 // a clock correction does not leave brightness on the old solar schedule.
 fn receive_until(
     timeout: SystemTime,
+    clock_reference: (SystemTime, Instant),
     mut receive: impl FnMut(Duration) -> Result<Message, RecvTimeoutError>,
     mut now: impl FnMut() -> (SystemTime, Instant),
 ) -> Result<Message, RecvTimeoutError> {
+    let (wall_reference, monotonic_reference) = clock_reference;
     let (wall_start, monotonic_start) = now();
     // Preserve the guards against past expiries and subsecond busy loops.
     let duration = timeout
@@ -142,7 +148,9 @@ fn receive_until(
         if elapsed >= duration {
             return Err(RecvTimeoutError::Timeout);
         }
-        let Some(expected_wall) = wall_start.checked_add(elapsed) else {
+        let Some(expected_wall) =
+            wall_reference.checked_add(monotonic_now.duration_since(monotonic_reference))
+        else {
             return Err(RecvTimeoutError::Timeout);
         };
         let clock_shift = wall_now
@@ -215,6 +223,7 @@ mod tests {
         let elapsed = Cell::new(Duration::ZERO);
         let result = receive_until(
             deadline,
+            (start, monotonic_start),
             |duration| {
                 elapsed.set(elapsed.get() + duration);
                 Err(RecvTimeoutError::Timeout)
@@ -245,6 +254,38 @@ mod tests {
                 elapsed <= Duration::from_secs(60),
                 "A civil clock jump left the old brightness in place for {elapsed:?}"
             );
+        }
+    }
+
+    #[test]
+    fn clock_changes_during_application_do_not_keep_the_old_schedule() {
+        let calculated_at = UNIX_EPOCH + Duration::from_secs(24 * 3600);
+        let monotonic_reference = Instant::now();
+        let application_time = Duration::from_secs(5);
+        let until_deadline = Duration::from_secs(2 * 3600);
+        let adjustment = Duration::from_secs(6 * 3600);
+        for (corrected_time, expected_wait) in [
+            (calculated_at, until_deadline - application_time),
+            (calculated_at + adjustment, Duration::from_secs(60)),
+            (calculated_at - adjustment, Duration::from_secs(60)),
+        ] {
+            let elapsed = Cell::new(Duration::ZERO);
+            let result = receive_until(
+                calculated_at + until_deadline,
+                (calculated_at, monotonic_reference),
+                |duration| {
+                    elapsed.set(elapsed.get() + duration);
+                    Err(RecvTimeoutError::Timeout)
+                },
+                || {
+                    (
+                        corrected_time + application_time + elapsed.get(),
+                        monotonic_reference + application_time + elapsed.get(),
+                    )
+                },
+            );
+            assert!(matches!(result, Err(RecvTimeoutError::Timeout)));
+            assert_eq!(elapsed.get(), expected_wait);
         }
     }
 
@@ -299,8 +340,10 @@ mod tests {
         drop(sender);
         for expected in ["shutdown", "refresh", "disable", "enable", "disconnected"] {
             let clock_reads = Cell::new(0);
+            let clock_reference = (SystemTime::now(), Instant::now());
             let result = receive_until(
-                SystemTime::now() + Duration::from_secs(2 * 3600),
+                clock_reference.0 + Duration::from_secs(2 * 3600),
+                clock_reference,
                 |duration| receiver.recv_timeout(duration),
                 || {
                     clock_reads.set(clock_reads.get() + 1);
