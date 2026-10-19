@@ -6,7 +6,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{mpsc, Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub enum Message {
     Shutdown,
@@ -62,6 +62,9 @@ fn run<F: Fn()>(
     let mut enabled = true;
 
     loop {
+        // A clock correction can also happen during calculation or monitor writes,
+        // before receive_until starts waiting for the resulting solar deadline.
+        let clock_reference = (SystemTime::now(), Instant::now());
         let timeout = if enabled {
             // Apply brightness using latest config
             let config = config.read().unwrap().clone();
@@ -83,20 +86,12 @@ fn run<F: Fn()>(
                 log::info!("Brightness Worker sleeping indefinitely");
                 receiver.recv().map_err(|e| e.into())
             }
-            Some(timeout) => {
-                // Si l'expiry calculée est dans le passé (zone plate désynchronisée
-                // par les décalages sunrise/sunset), `duration_since` échoue :
-                // attendre 60 s plutôt que 0 évite un busy-loop à 100 % de CPU.
-                let duration = timeout
-                    .duration_since(SystemTime::now())
-                    .unwrap_or_else(|_| Duration::from_secs(60))
-                    .max(Duration::from_secs(1));
-                log::info!(
-                    "BrightnessController sleeping for {}s",
-                    duration.human_duration()
-                );
-                receiver.recv_timeout(duration)
-            }
+            Some(timeout) => receive_until(
+                timeout,
+                clock_reference,
+                |duration| receiver.recv_timeout(duration),
+                || (SystemTime::now(), Instant::now()),
+            ),
         };
 
         match rx_result {
@@ -119,6 +114,53 @@ fn run<F: Fn()>(
                 log::debug!("Refreshing due to timeout")
             }
             Err(RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
+// recv_timeout uses a monotonic clock. Recheck civil time during long waits so
+// a clock correction does not leave brightness on the old solar schedule.
+fn receive_until(
+    timeout: SystemTime,
+    clock_reference: (SystemTime, Instant),
+    mut receive: impl FnMut(Duration) -> Result<Message, RecvTimeoutError>,
+    mut now: impl FnMut() -> (SystemTime, Instant),
+) -> Result<Message, RecvTimeoutError> {
+    let (wall_reference, monotonic_reference) = clock_reference;
+    let (wall_start, monotonic_start) = now();
+    // Preserve the guards against past expiries and subsecond busy loops.
+    let duration = timeout
+        .duration_since(wall_start)
+        .unwrap_or_else(|_| Duration::from_secs(60))
+        .max(Duration::from_secs(1));
+    log::info!(
+        "BrightnessController sleeping for {}s",
+        duration.human_duration()
+    );
+    let mut elapsed = Duration::ZERO;
+    loop {
+        match receive((duration - elapsed).min(Duration::from_secs(60))) {
+            Err(RecvTimeoutError::Timeout) => {}
+            result => return result,
+        }
+        let (wall_now, monotonic_now) = now();
+        elapsed = monotonic_now.duration_since(monotonic_start);
+        if elapsed >= duration {
+            return Err(RecvTimeoutError::Timeout);
+        }
+        let Some(expected_wall) =
+            wall_reference.checked_add(monotonic_now.duration_since(monotonic_reference))
+        else {
+            return Err(RecvTimeoutError::Timeout);
+        };
+        let clock_shift = wall_now
+            .duration_since(expected_wall)
+            .unwrap_or_else(|error| error.duration());
+        // Brightness is calculated at whole-second precision. Intermediate
+        // checks with an unchanged clock must not reapply brightness or DDC/CI.
+        if clock_shift >= Duration::from_secs(1) {
+            log::debug!("Refreshing after a system clock change");
+            return Err(RecvTimeoutError::Timeout);
         }
     }
 }
@@ -170,6 +212,160 @@ fn apply(config: SsbConfig) -> Option<ApplyResults> {
 mod tests {
     use super::*;
     use crate::apply::{BrightnessDetails, MonitorProperties, MonitorResult, SunriseSunsetResult};
+    use std::cell::Cell;
+
+    fn elapsed_until_timeout(
+        start: SystemTime,
+        deadline: SystemTime,
+        wall_time_after_wait: impl Fn(Duration) -> SystemTime,
+    ) -> Duration {
+        let monotonic_start = Instant::now();
+        let elapsed = Cell::new(Duration::ZERO);
+        let result = receive_until(
+            deadline,
+            (start, monotonic_start),
+            |duration| {
+                elapsed.set(elapsed.get() + duration);
+                Err(RecvTimeoutError::Timeout)
+            },
+            || {
+                let elapsed = elapsed.get();
+                let wall_time = if elapsed.is_zero() {
+                    start
+                } else {
+                    wall_time_after_wait(elapsed)
+                };
+                (wall_time, monotonic_start + elapsed)
+            },
+        );
+        assert!(matches!(result, Err(RecvTimeoutError::Timeout)));
+        elapsed.get()
+    }
+
+    #[test]
+    fn clock_jumps_refresh_before_the_old_solar_deadline() {
+        let start = UNIX_EPOCH + Duration::from_secs(24 * 3600);
+        let deadline = start + Duration::from_secs(2 * 3600);
+        let adjustment = Duration::from_secs(6 * 3600);
+        for corrected_time in [start + adjustment, start - adjustment] {
+            let elapsed =
+                elapsed_until_timeout(start, deadline, |elapsed| corrected_time + elapsed);
+            assert!(
+                elapsed <= Duration::from_secs(60),
+                "A civil clock jump left the old brightness in place for {elapsed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clock_changes_during_application_do_not_keep_the_old_schedule() {
+        let calculated_at = UNIX_EPOCH + Duration::from_secs(24 * 3600);
+        let monotonic_reference = Instant::now();
+        let application_time = Duration::from_secs(5);
+        let until_deadline = Duration::from_secs(2 * 3600);
+        let adjustment = Duration::from_secs(6 * 3600);
+        for (corrected_time, expected_wait) in [
+            (calculated_at, until_deadline - application_time),
+            (calculated_at + adjustment, Duration::from_secs(60)),
+            (calculated_at - adjustment, Duration::from_secs(60)),
+        ] {
+            let elapsed = Cell::new(Duration::ZERO);
+            let result = receive_until(
+                calculated_at + until_deadline,
+                (calculated_at, monotonic_reference),
+                |duration| {
+                    elapsed.set(elapsed.get() + duration);
+                    Err(RecvTimeoutError::Timeout)
+                },
+                || {
+                    (
+                        corrected_time + application_time + elapsed.get(),
+                        monotonic_reference + application_time + elapsed.get(),
+                    )
+                },
+            );
+            assert!(matches!(result, Err(RecvTimeoutError::Timeout)));
+            assert_eq!(elapsed.get(), expected_wait);
+        }
+    }
+
+    #[test]
+    fn steady_clock_does_not_refresh_before_the_solar_deadline() {
+        let start = UNIX_EPOCH + Duration::from_secs(24 * 3600);
+        let duration = Duration::from_secs(2 * 3600 + 17);
+        assert_eq!(
+            elapsed_until_timeout(start, start + duration, |elapsed| start + elapsed),
+            duration
+        );
+        // Subsecond sampling differences must not cause extra hardware writes.
+        for wall_start in [
+            start + Duration::from_millis(500),
+            start - Duration::from_millis(500),
+        ] {
+            assert_eq!(
+                elapsed_until_timeout(start, start + duration, |elapsed| wall_start + elapsed),
+                duration
+            );
+        }
+    }
+
+    #[test]
+    fn short_and_past_deadlines_preserve_existing_delay_guards() {
+        let start = UNIX_EPOCH + Duration::from_secs(24 * 3600);
+        for (deadline, expected) in [
+            (start + Duration::from_secs(2), Duration::from_secs(2)),
+            (start + Duration::from_millis(250), Duration::from_secs(1)),
+            (start, Duration::from_secs(1)),
+            (start - Duration::from_secs(1), Duration::from_secs(60)),
+        ] {
+            assert_eq!(
+                elapsed_until_timeout(start, deadline, |elapsed| start + elapsed),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn all_messages_and_disconnection_interrupt_the_wait() {
+        let (sender, receiver) = mpsc::channel();
+        let messages = [
+            Message::Shutdown,
+            Message::Refresh("test"),
+            Message::Disable("test"),
+            Message::Enable("test"),
+        ];
+        for message in messages {
+            sender.send(message).unwrap();
+        }
+        drop(sender);
+        for expected in ["shutdown", "refresh", "disable", "enable", "disconnected"] {
+            let clock_reads = Cell::new(0);
+            let clock_reference = (SystemTime::now(), Instant::now());
+            let result = receive_until(
+                clock_reference.0 + Duration::from_secs(2 * 3600),
+                clock_reference,
+                |duration| receiver.recv_timeout(duration),
+                || {
+                    clock_reads.set(clock_reads.get() + 1);
+                    (SystemTime::now(), Instant::now())
+                },
+            );
+            let received = match result {
+                Ok(Message::Shutdown) => "shutdown",
+                Ok(Message::Refresh("test")) => "refresh",
+                Ok(Message::Disable("test")) => "disable",
+                Ok(Message::Enable("test")) => "enable",
+                Err(RecvTimeoutError::Disconnected) => "disconnected",
+                _ => panic!("The pending message or disconnection was not forwarded"),
+            };
+            assert_eq!(received, expected);
+            assert_eq!(
+                clock_reads.get(),
+                1,
+                "A received message must return immediately"
+            );
+        }
+    }
 
     #[test]
     fn missing_or_failed_devices_retry_even_with_constant_brightness() {
