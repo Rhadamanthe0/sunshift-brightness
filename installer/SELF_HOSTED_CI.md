@@ -1,9 +1,12 @@
 # CI sur MINIPC-CLEM
 
 Le workflow Rust Build utilise uniquement MINIPC-CLEM. Les jobs Linux de tests,
-style et publication exigent `self-hosted,linux,x64,minipc,ephemeral,podman-jit-v2`. Chaque job
-Windows, y compris une PR de fork ou un tag, exige une VM KVM neuve et les labels
-`self-hosted,windows,x64,minipc,ephemeral,sunshift`. PC-PRO-CLEM, PC-FIXE-CLEM et
+style et publication exigent `self-hosted,linux,x64,minipc,rhada-persistent-v1`.
+Les jobs Windows admis de ce dépôt privé exigent une VM KVM neuve et les labels
+`self-hosted,windows,x64,minipc,rhada-persistent-v1`. Chaque job ajoute son label
+`rhada-job-<identifiant>` (`windows`, `publish`, `ubuntu` ou `check_style`).
+Les inscriptions GitHub restent propres au dépôt et au système ; l'environnement
+est recréé par job. PC-PRO-CLEM, PC-FIXE-CLEM et
 les runners Windows hébergés GitHub ne sont pas des cibles de repli. Les tâches
 Dependabot font exception et gardent leur service actuel ; cette migration ne
 modifie ni leurs réglages ni leurs jobs dynamiques.
