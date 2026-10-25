@@ -62,7 +62,8 @@ function Install-GitHubGraphics {
             try {
                 foreach ($file in $package.files) {
                     $entryName = 'chrome-win64/' + $file.name
-                    $entries = @($zip.Entries | Where-Object { $_.FullName -ceq $entryName })
+                    # .NET Framework ZIPs can use backslashes; still require one exact entry.
+                    $entries = @($zip.Entries | Where-Object { $_.FullName.Replace('\', '/') -ceq $entryName })
                     if ($entries.Count -ne 1) { throw "Missing or duplicate graphics entry: $entryName" }
                     $destination = Join-Path $folder $file.name
                     [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0], $destination, $false)
