@@ -35,9 +35,8 @@ jobs:
 
   windows:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'linux'
-    # Les exécutions admises de ce dépôt privé exigent une VM Windows neuve
-    # par job sur MINIPC-CLEM ; les labels seuls ne prouvent pas son isolation.
-    runs-on: [self-hosted, windows, x64, minipc, rhada-persistent-v1, rhada-job-windows, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    # Depot public : VM GitHub standard jetable, y compris pour les PR de forks.
+    runs-on: windows-2025
     permissions:
       contents: read
     defaults:
@@ -47,7 +46,8 @@ jobs:
     steps:
       - name: Prepare Windows target directory
         run: |
-          $target = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-cargo-target'
+          # RUNNER_TEMP shares the workspace drive; the tool cache may be on C:.
+          $target = Join-Path $env:RUNNER_TEMP 'ssb-cargo-target'
           $previous = Join-Path $env:GITHUB_WORKSPACE 'target'
           if (-not (Test-Path $target) -and (Test-Path $previous)) {
             Move-Item -LiteralPath $previous -Destination $target
@@ -57,11 +57,20 @@ jobs:
           $workspaceUri = [Uri]($env:GITHUB_WORKSPACE.TrimEnd('\', '/') + '/')
           $targetUri = [Uri]($target.TrimEnd('\', '/') + '/')
           $relativeTarget = [Uri]::UnescapeDataString($workspaceUri.MakeRelativeUri($targetUri).ToString())
+          if ([IO.Path]::IsPathRooted($relativeTarget)) {
+            throw 'Cargo cache target must be relative to the workspace (same drive).'
+          }
           "CARGO_CACHE_TARGET=$relativeTarget" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Test GitHub graphics preparation (offline)
+        run: '& ./installer/test_github_graphics.ps1'
+
+      - name: Prepare verified software graphics
+        run: '& ./installer/prepare_github_graphics.ps1'
 
       - name: Prepare isolated Rust toolchain
         run: |
@@ -326,7 +335,7 @@ jobs:
   publish:
     needs: windows
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-publish, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -346,11 +355,15 @@ jobs:
 
   ubuntu:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
-    # MINIPC-CLEM : libudev-dev, libssl-dev et la chaîne C sont dans l'image du
-    # runner. apt-get y est impossible (root sans capacité : setgroups refusé).
-    runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-ubuntu, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    # Les dependances natives sont installees dans la VM GitHub jetable.
+    runs-on: ubuntu-24.04
 
     steps:
+      - name: Install Ubuntu dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libudev-dev libssl-dev build-essential pkg-config
+
       - name: Check Ubuntu dependencies
         run: dpkg -s libudev-dev libssl-dev build-essential pkg-config >/dev/null
 
@@ -380,7 +393,7 @@ jobs:
 
   check_style:
     if: github.event_name != 'workflow_dispatch' || inputs.platform != 'windows'
-    runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-check_style, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:

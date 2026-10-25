@@ -1,138 +1,87 @@
-# CI sur MINIPC-CLEM
+# CI sur les runners standards GitHub
 
-Le workflow Rust Build utilise uniquement MINIPC-CLEM. Les jobs Linux de tests,
-style et publication exigent `self-hosted,linux,x64,minipc,rhada-persistent-v1`.
-Les jobs Windows admis de ce dépôt privé exigent une VM KVM neuve et les labels
-`self-hosted,windows,x64,minipc,rhada-persistent-v1`. Chaque job ajoute son label
-`rhada-job-<identifiant>` (`windows`, `publish`, `ubuntu` ou `check_style`).
-Les inscriptions GitHub restent propres au dépôt et au système ; l'environnement
-est recréé par job. PC-PRO-CLEM, PC-FIXE-CLEM et
-les runners Windows hébergés GitHub ne sont pas des cibles de repli. Les tâches
-Dependabot font exception et gardent leur service actuel ; cette migration ne
-modifie ni leurs réglages ni leurs jobs dynamiques.
-Les deux OS exigent aussi `rhada-run-${{ github.run_id }}-${{ github.run_attempt }}`.
-Le contrôleur commun privilégie la PR ayant encore des CI et créée la première,
-puis passe à la suivante dès leur fin, sans attendre de fusion.
+Depuis le passage du depot en public, `Rust Build` cible `windows-2025`
+pour Windows et `ubuntu-24.04` pour les tests Linux, le style et la publication.
+Chaque job utilise une VM GitHub jetable. Aucun job du workflow courant ne
+cible MINIPC-CLEM, PC-PRO-CLEM ou PC-FIXE-CLEM. Le nom historique de ce guide
+est conserve pour ne pas casser les liens.
 
-## Environnement Windows
+Les declenchements restent identiques : push sur `master`, PR, tags `v[0-9]*`
+et lancement manuel. Une PR de fork s'execute sans secret personnel sur une
+VM jetable ; aucun `pull_request_target` n'execute son code. Les compilations
+et tests gardent `contents: read`, les checkouts `persist-credentials: false`.
+Seul `publish`, apres reussite Windows et uniquement sur tag, a `contents: write`.
+La migration ne cree aucun tag ni release de demonstration.
 
-La création de la VM et le cycle du runner relèvent de l'infrastructure MINIPC.
-Ces changements de workflow ne les installent ni ne les enregistrent. Ne pas
-attribuer ces labels à une machine persistante : ils ne garantissent pas
-l'isolation. La VM doit être détruite après réussite, échec ou annulation, sans
-secrets hôte, socket de conteneurs rootful, dossiers personnels ni accès au
-réseau domestique. L'enveloppe CPU et mémoire CI reste partagée avec Linux.
+## Preparation reproductible
 
-Le guest requiert Git, Windows PowerShell et un bureau Windows interactif.
-Lorsque la référence Windows scellée contient Rust stable GNU/Clippy et WinLibs
-MinGW (`gcc`, `dlltool`, `windres`), le workflow les vérifie et les réutilise
-sans téléchargement. Les références antérieures conservent la préparation
-Rust dans le cache local du job et le téléchargement vérifié de MinGW.
-NSIS (`makensis`) est recherché dans le PATH avant l'installation portable
-de secours. Les archives téléchargées sont vérifiées par SHA-256 (SHA-512 pour
-Zstandard). Cette chaîne GNU n'exige ni MSVC Build Tools, ni CMake, ni Chocolatey.
-La référence reste immuable ; chaque job écrit seulement dans sa VM jetable.
-Les dépendances Cargo téléchargées et
-compilées (debug et release) sont sauvegardées dans le cache GitHub Actions par
-`Swatinem/rust-cache`, puis restaurées dans chaque nouvelle VM. Aucun disque
-écrivable de VM n'est partagé entre jobs. Le cache exclut les exécutables de
-`CARGO_HOME/bin` ; Rust est toujours préparé et vérifié avant la restauration.
+Linux installe explicitement `libudev-dev`, `libssl-dev`, `build-essential`
+et `pkg-config` avec apt dans sa VM. Rust stable, Clippy, rustfmt, les commandes
+Cargo verrouillees et le controle du manifeste sont conserves.
 
-La clé distingue Windows GNU, la version MinGW et la semaine UTC du lundi,
-puis inclut automatiquement la version de Rust, les manifestes et `Cargo.lock`.
-Une première exécution réussie de la semaine permet de sauvegarder une nouvelle
-génération de cache, sans devoir réutiliser indéfiniment une archive immuable.
-Le dossier cible situé dans
-`RUNNER_TOOL_CACHE` est explicitement déclaré relativement au checkout. Les
-règles de portée GitHub isolent les caches des PR ; une PR ne peut pas remplacer
-le cache de la branche principale. Les dépendances ne sont sauvegardées
-que si le job Windows réussit : aucune compression du cache après un échec.
-Les diagnostics doivent être publiés sans attendre cet export.
-Avant restauration, le workflow recherche Zstandard, puis peut télécharger sa
-version 1.5.7 avec contrôle SHA-512. En cas d'indisponibilité, le cache conserve
-le mode gzip. Un changement de méthode de compression produit une autre version
-de cache GitHub : le premier passage avec Zstandard peut donc être à froid.
-Les suivants peuvent réutiliser les dépendances, mais recompilent le projet et
-refont l'édition de liens. La validation native doit confirmer une sauvegarde,
-puis une restauration lors d'un job suivant.
+Windows conserve sa preparation Rust GNU et MinGW, le cache Cargo et NSIS,
+ainsi que les controles existants de compression, installation, mise a niveau
+et desinstallation. Les chemins de l'ancienne reference scellee sont des
+optimisations facultatives : ils sont absents sur GitHub, et la preparation
+existante telecharge alors ses outils verifies. Aucun fichier applicatif ni
+comportement de luminosite n'est modifie par cette migration.
 
-La préparation approuvée fournit Vulkan SwiftShader et OpenGL ES via EGL/ANGLE logiciel
-sur CPU. Les deux passes GUI natives demandent explicitement Vulkan et OpenGL,
-vérifient le backend réellement sélectionné et refusent un repli vers l'autre
-API. La capture Vulkan utilise la relecture GPU ; la capture OpenGL sous
-egui-wgpu 0.23 lit les pixels de la fenêtre Windows via GDI. Chaque page et
-la fenêtre rouverte doivent produire une image non uniforme. Le rendu logiciel
-ne prouve pas le support d'un GPU ou moniteur physique.
-La passe OpenGL conserve les DLL ANGLE/SwiftShader 137 ensemble et copie aussi
-le chargeur vérifié `vulkan-1.dll` dans son dossier privé. Son manifeste
-`installer/vk_swiftshader_icd.json` provient de Chrome for Testing
-137.0.7151.119 (archive SHA-256
-`c1ff403bfd791544fd880f67daa81bfaa022c2e3fdbc0ad68605458b5a2c0845`) ;
-il désigne la DLL GLES locale, sans emprunter celle de la passe Vulkan.
-Les essais GUI et installateur exigent toujours Windows ; une compilation
-croisée ne les remplace pas.
+`prepare_github_graphics.ps1` recree la fixture graphique attendue dans
+`C:\RhadaCI\graphics`, uniquement sur un runner GitHub Windows. Il telecharge
+les archives Chrome for Testing listees dans `github-graphics.json`, verifie
+leur SHA-256 puis celui de chacun des six fichiers extraits. Les versions et
+empreintes sont celles de la fixture MINIPC existante : ANGLE/GLES 137.0.7151.119
+et Vulkan/SwiftShader 155.0.8059.39. Chrome lui-meme n'est ni installe ni execute.
+Les deux ensembles sont verifies avant publication de la fixture ; aucune
+installation existante n'est remplacee, et les fichiers temporaires sont nettoyes.
 
-Un runner démarré comme service utilise une tâche planifiée temporaire pour
-lancer la fixture GUI dans la session console connectée. Cela exige le droit
-d'enregistrer cette tâche ; elle est supprimée après l'essai et ne reçoit aucun
-identifiant du runner. Le guest doit fournir cette session interactive jetable.
-Aucun bureau personnel n'est utilisé.
+`test_github_graphics.ps1` utilise de vraies archives factices et remplace
+seulement le telechargement. Il controle l'extraction complete, le refus d'une
+destination existante, le refus hors GitHub Windows, les empreintes d'archive
+et de fichier incorrectes, les fichiers absents et les chemins interdits.
 
-## Validation manuelle
+## Tests conserves
 
-Après publication du workflow migré, choisir une branche qui le contient :
+Les deux passes GUI natives demandent explicitement Vulkan et OpenGL et
+verifient le backend effectivement utilise, sans repli vers l'autre API.
+Leurs delais et assertions sont inchanges. Le test rend toutes les pages et
+le graphe solaire, cree le tray, ferme et rouvre la fenetre ; les captures
+restent obligatoirement non uniformes. La configuration de test reste en
+memoire, avec les moniteurs desactives et sans fichier applicatif personnel.
 
-```powershell
-$branch = 'master'
-# Windows : tests, Clippy, build release, NSIS et essais GUI/installateur natifs.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=windows
-# Linux : tests, Clippy, syntaxe du script, format et tri du manifeste.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=linux
-# Les deux plateformes, exclusivement sur MINIPC-CLEM.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=all
-# Seulement avec un moniteur physique compatible réellement accessible au guest.
-gh workflow run rust.yml --repo Rhadamanthe0/sunshift-brightness --ref $branch -f platform=windows -f physical_monitor_check=true
-```
+La fixture NSIS garde ses deux mises a niveau, la conservation de configuration,
+les comparaisons binaires, le controle du demarrage automatique et des
+raccourcis, puis la desinstallation. Elle n'installe pas l'application pour un
+usage personnel. Les essais GUI et installateur exigent Windows : une
+compilation croisee ou un seul `cargo test` ne les remplace pas.
 
-**Actions → Rust Build → Run workflow** propose la plateforme et le contrôle
-physique optionnel. Le choix du runner n'est plus un paramètre. Les jobs Windows
-restent en attente tant qu'un runner ne possède pas les labels exigés et que le
-cycle de VM n'est pas préparé ; cette attente ne prouve pas que la VM existe.
+Le script GUI peut employer une tache temporaire dans la session interactive
+si le runner fonctionne en session 0. Une absence de bureau interactif ou de
+backend reste un echec, pas un test ignore. La compilation est preparee avant
+la fenetre de temps du test GUI, comme precedemment.
 
-## Contrôles natifs et publication
+## Limite physique explicite
 
-La fixture GUI rend toutes les pages et le graphe solaire, crée le tray puis
-ferme et rouvre sa fenêtre, pour chacune des deux API demandées. Elle garde sa
-configuration en mémoire avec tous les moniteurs désactivés, ignore les clics
-et ne charge ni n'enregistre les fichiers applicatifs. `cargo test` ordinaire
-ignore cet essai ; le workflow l'appelle explicitement.
+Le rendu logiciel prouve le fonctionnement des deux API graphiques, pas celui
+d'un GPU physique ni d'un moniteur DDC/CI. `physical_monitor_check` reste
+optionnel et desactive par defaut. L'activer exige toujours au moins un ecran
+physique compatible : lire la luminosite, reecrire les memes valeurs et les
+relire. Un ecran virtuel GitHub ne satisfait pas ce contrat et le test echoue
+au lieu de pretendre le contraire. Pour ce controle materiel, utiliser le
+script local sur une machine et un ecran autorises ; ne pas reconnecter un
+runner personnel aux PR publiques.
 
-La fixture NSIS effectue deux mises à niveau, vérifie la conservation de sa
-configuration, arrête son processus CLI verrouillé, compare les binaires, vérifie
-démarrage automatique et raccourcis, puis désinstalle. Fichiers, processus, clés
-de registre et raccourcis portent des identifiants uniques. Aucune application
-n'est installée pour un usage personnel.
+## Lancement et publication
 
-Sur tag uniquement, après réussite de ces contrôles Windows, les mêmes trois
-exécutables (`ssb.exe`, `ssb-cli.exe`, `ssb-installer.exe`) sont envoyés comme
-artefact `windows-release`. Un job Linux distinct télécharge l'artefact de cette
-exécution et publie la release. Seul ce job possède `contents: write` ; les jobs
-de compilation et tests gardent `contents: read`, avec
-`persist-credentials: false` pour checkout. Ce guide n'autorise pas la création
-d'un tag ou d'une release comme simple essai.
+Dans Actions > Rust Build > Run workflow, `platform` choisit `all`, `windows`
+ou `linux`, pas le runner. Sur tag, les trois executables Windows valides
+sont transmis au job Linux de publication sous forme d'artefact de la meme
+execution. La migration n'affaiblit pas cette dependance.
 
-## Contrôle du moniteur physique
-
-`physical_monitor_check=true` conserve le cycle natif existant : lire la
-luminosité actuelle, réécrire ces mêmes valeurs, puis les relire. Les écrans
-internes utilisent l'interface Windows IOCTL de l'application et conservent les
-valeurs secteur et batterie ; les écrans externes exigent DDC/CI. Au moins un
-moniteur physique compatible doit réussir, sinon le contrôle échoue. Un écran
-virtuel ne prouve pas cette capacité. Les passages ordinaires ne font
-qu'énumérer les moniteurs.
-
-En cas d'échec, lire la description du moniteur physique et l'erreur Windows.
-Pour un écran externe, DDC/CI doit être activé avec une connexion compatible ;
-un moniteur détecté ne prouve pas le support DDC/CI. Connexion, verrouillage et
-déverrouillage réels, ainsi que débranchement/rebranchement physique du moniteur,
-exigent encore une séance interactive distincte.
+Les anciennes branches, anciens tags et anciennes executions peuvent encore
+contenir le workflow MINIPC. Ne pas les relancer comme preuve de cette migration.
+Revoir les inscriptions de runners auto-heberges autorisees pour ce depot public :
+changer `runs-on` ne constitue pas une restriction administrative des runners.
+Les anciens journaux et l'historique Git doivent etre controles separement
+pour les informations sensibles ; ce changement de CI n'est pas un audit
+exhaustif de publication.
