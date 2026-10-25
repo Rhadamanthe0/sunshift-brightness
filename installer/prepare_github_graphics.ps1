@@ -7,6 +7,8 @@ function Install-GitHubGraphics {
         [string] $DestinationRoot = 'C:\RhadaCI\graphics'
     )
     $ErrorActionPreference = 'Stop'
+    # Windows PowerShell 5 progress rendering can dominate large downloads.
+    $ProgressPreference = 'SilentlyContinue'
     if ($env:GITHUB_ACTIONS -ne 'true' -or
         $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows') {
         throw 'Graphics preparation requires a disposable GitHub-hosted Windows runner.'
@@ -52,6 +54,7 @@ function Install-GitHubGraphics {
         New-Item -ItemType Directory -Path $stage -Force | Out-Null
         foreach ($package in $manifest.packages) {
             $archive = Join-Path $temporary ($package.directory + '.zip')
+            Write-Output "Downloading $($package.directory) fixture $($package.version)."
             Invoke-WebRequest -UseBasicParsing -Uri $package.url -OutFile $archive -TimeoutSec 300
             if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $package.sha256) {
                 throw "Graphics archive SHA-256 mismatch: $($package.directory)"
@@ -74,6 +77,7 @@ function Install-GitHubGraphics {
             } finally {
                 $zip.Dispose()
             }
+            Write-Output "Verified archive and all files for $($package.directory)."
         }
         # Publish only after BOTH archives and every extracted file are verified.
         $parent = Split-Path -Parent $DestinationRoot
