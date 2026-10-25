@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "packages": [
+    {
+      "directory": "gles",
+      "version": "137.0.7151.119",
+      "url": "https://storage.googleapis.com/chrome-for-testing-public/137.0.7151.119/win64/chrome-win64.zip",
+      "sha256": "c1ff403bfd791544fd880f67daa81bfaa022c2e3fdbc0ad68605458b5a2c0845",
+      "files": [
+        {
+          "name": "libEGL.dll",
+          "sha256": "a763633ccd3b5f6cee6c0db6b1ff12792e51844492ed9c7d551e9aab2caa89f9"
+        },
+        {
+          "name": "libGLESv2.dll",
+          "sha256": "d9b5a8d206a431bd7fae23af41fa005427063e3b57429d7ae5d6853c923a8aac"
+        },
+        {
+          "name": "vk_swiftshader.dll",
+          "sha256": "e110e180654ccd49659501d3299d057f30ca0a1bc5489daea40d89bf5944eab8"
+        }
+      ]
+    },
+    {
+      "directory": "vulkan",
+      "version": "155.0.8059.39",
+      "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-win64.zip",
+      "sha256": "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e",
+      "files": [
+        {
+          "name": "vk_swiftshader.dll",
+          "sha256": "a50346cae918394bd8b08e349215cc474da093d3ebfc3b026065473f7f63538b"
+        },
+        {
+          "name": "vk_swiftshader_icd.json",
+          "sha256": "32d83ff113fef532a9f97e0d2831f8656628ab1c99e9060f0332b1532839afd9"
+        },
+        {
+          "name": "vulkan-1.dll",
+          "sha256": "277b182fdd3b4474378b15e55e2e1bf18ebf8ad09679c2d4ac47bc85665d7f9e"
+        }
+      ]
+    }
+  ]
+}
