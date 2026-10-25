@@ -46,7 +46,8 @@ jobs:
     steps:
       - name: Prepare Windows target directory
         run: |
-          $target = Join-Path $env:RUNNER_TOOL_CACHE 'ssb-cargo-target'
+          # RUNNER_TEMP shares the workspace drive; the tool cache may be on C:.
+          $target = Join-Path $env:RUNNER_TEMP 'ssb-cargo-target'
           $previous = Join-Path $env:GITHUB_WORKSPACE 'target'
           if (-not (Test-Path $target) -and (Test-Path $previous)) {
             Move-Item -LiteralPath $previous -Destination $target
@@ -56,6 +57,9 @@ jobs:
           $workspaceUri = [Uri]($env:GITHUB_WORKSPACE.TrimEnd('\', '/') + '/')
           $targetUri = [Uri]($target.TrimEnd('\', '/') + '/')
           $relativeTarget = [Uri]::UnescapeDataString($workspaceUri.MakeRelativeUri($targetUri).ToString())
+          if ([IO.Path]::IsPathRooted($relativeTarget)) {
+            throw 'Cargo cache target must be relative to the workspace (same drive).'
+          }
           "CARGO_CACHE_TARGET=$relativeTarget" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - uses: actions/checkout@v4
