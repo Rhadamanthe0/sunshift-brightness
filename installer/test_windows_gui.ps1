@@ -4,6 +4,20 @@
     [string] $Backend = 'Vulkan'
 )
 $ErrorActionPreference = 'Stop'
+# Windows peut garder l'exécutable de test verrouillé quelques instants après
+# sa fin (constat du 26/10/2026 sur windows-2025) : réessayer brièvement, puis
+# échouer comme avant si le dossier ne peut toujours pas être supprimé.
+function Remove-TestDirectory([string] $Path) {
+    for ($attempt = 1; $attempt -le 20 -and (Test-Path -LiteralPath $Path); $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        } catch {
+            if ($attempt -ge 20) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    if (Test-Path -LiteralPath $Path) { throw "Unable to remove $Path." }
+}
 . (Join-Path $PSScriptRoot 'copy_graphics_library.ps1')
 $backendName = if ($PSBoundParameters.ContainsKey('Backend')) { $Backend.ToLowerInvariant() } else { '' }
 $filter = 'gui::app::native_tests::native_windows_gui_lifecycle'
@@ -102,9 +116,7 @@ if ($session -ne 0) {
         $env:VK_ICD_FILENAMES = $previousIcd
         $env:PATH = $previousPath
         $env:ANGLE_DEFAULT_PLATFORM = $previousAngle
-        if (Test-Path -LiteralPath $fixture) {
-            Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction Stop
-        }
+        Remove-TestDirectory $fixture
     }
     & (Join-Path $PSScriptRoot 'diagnose_windows_monitors.ps1') -CheckBrightness:($env:SSB_TEST_MONITOR_ROUNDTRIP -eq '1')
     return
@@ -217,7 +229,5 @@ exit `$result
     if (Test-Path $errorOutput) { Get-Content -LiteralPath $errorOutput -Encoding UTF8 }
     if (Test-Path $diagnosticOutput) { Get-Content -LiteralPath $diagnosticOutput -Encoding Unicode }
     # The service/interactive path must clean up its executable, libraries and logs.
-    if (Test-Path -LiteralPath $directory) {
-        Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction Stop
-    }
+    Remove-TestDirectory $directory
 }
