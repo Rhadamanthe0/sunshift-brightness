@@ -21,9 +21,8 @@ Cargo verrouillees et le controle du manifeste sont conserves.
 
 Windows conserve sa preparation Rust GNU et MinGW, le cache Cargo et NSIS,
 ainsi que les controles existants de compression, installation, mise a niveau
-et desinstallation. Les chemins de l'ancienne reference scellee sont des
-optimisations facultatives : ils sont absents sur GitHub, et la preparation
-existante telecharge alors ses outils verifies. Aucun fichier applicatif ni
+et desinstallation. La preparation telecharge ses outils verifies ; les
+chemins de l'ancienne reference scellee ont ete retires du workflow. Aucun fichier applicatif ni
 comportement de luminosite n'est modifie par cette migration.
 
 `prepare_github_graphics.ps1` recree la fixture graphique attendue dans
