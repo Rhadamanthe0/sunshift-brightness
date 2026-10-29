@@ -85,28 +85,20 @@ To rebuild the installer from source (requires `makensis`):
 makensis /DBINDIR=<dir with the .exe> /DICON=<icon.ico> /DOUTFILE=<output.exe> installer\windows.nsi
 ```
 
-Le workflow Rust Build s'exécute uniquement sur MINIPC-CLEM. Chaque job
-Windows exige une VM neuve avec les labels
-`self-hosted,windows,x64,minipc,ephemeral,sunshift` ; les jobs Linux utilisent
-`self-hosted,linux,x64,minipc,ephemeral,podman-jit-v2`. Aucun de ces jobs ne se replie sur
-PC-PRO-CLEM, PC-FIXE-CLEM ou un runner hébergé GitHub. Les tâches Dependabot
-font exception à cette destination et gardent leur service actuel.
-Les deux OS exigent aussi `rhada-run-${{ github.run_id }}-${{ github.run_attempt }}`.
-Le contrôleur commun privilégie la PR ayant encore des CI et créée la première,
-puis passe à la suivante dès leur fin, sans attendre de fusion.
+Le workflow **Rust Build** utilise les machines jetables de GitHub :
+`windows-2025` pour Windows, `ubuntu-24.04` pour Linux, le style et la
+publication sur tag. Aucun job courant ne cible les PC personnels ni MINIPC-CLEM.
+Les contrôles Windows conservent les tests natifs de l'application, du tray
+et de l'installeur ; les contrôles Linux et le formatage restent distincts.
+La VM ne prouve pas le réglage réel de luminosité d'un moniteur DDC/CI :
+ce test matériel reste optionnel et demande un écran compatible.
 
-La VM doit être détruite après chaque job, y compris après échec ou annulation ;
-les labels ne prouvent pas cette isolation. Le workflow prépare Rust/MinGW et
-NSIS portables avec vérification des archives, puis lance `makensis` **depuis
-le dossier `installer/`**, en passant la sortie réelle de Cargo par `/DBINDIR`.
-Les changements de workflow n'installent ni la VM ni son runner.
-
-Sur tag, après réussite des contrôles Windows, les mêmes `ssb.exe`,
-`ssb-cli.exe` et `ssb-installer.exe` sont transmis à un job Linux de publication.
-Seul ce job possède `contents: write` ; compilations et tests gardent
-`contents: read`, et checkout ne conserve pas les identifiants GitHub.
-Le lancement manuel choisit la plateforme et le contrôle physique optionnel ;
-le choix du runner n'est plus un paramètre.
+Le lancement manuel choisit la plateforme et le test matériel, pas le runner.
+Sur tag, le job de publication attend les binaires Windows validés et seul
+ce job possède le droit `contents: write`. Les PR utilisent les machines
+jetables sans secret personnel ni publication. Pour les étapes de construction,
+leurs limites et les anciens runners, voir le
+[guide de la CI](installer/SELF_HOSTED_CI.md).
 
 ### Validation
 
